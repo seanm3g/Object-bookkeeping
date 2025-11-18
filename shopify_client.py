@@ -127,14 +127,6 @@ def transform_order(node: Dict) -> Dict:
         product_type = product.get("productType", "")
         tags = product.get("tags", []) or []
         
-        # Extract collections
-        collections = []
-        collections_edges = product.get("collections", {}).get("edges", [])
-        for coll_edge in collections_edges:
-            coll_title = coll_edge.get("node", {}).get("title", "")
-            if coll_title:
-                collections.append(coll_title)
-        
         line_items.append({
             "id": item_node.get("id", ""),
             "title": item_node.get("title", ""),
@@ -145,7 +137,7 @@ def transform_order(node: Dict) -> Dict:
             "vendor": vendor,
             "product_type": product_type,
             "tags": tags,
-            "collections": collections
+            "collections": []  # Not fetched to reduce query cost - use tags instead
         })
     
     # Extract customer info
@@ -181,6 +173,47 @@ def transform_order(node: Dict) -> Dict:
             "rate_display": rate_display
         })
     
+    # Extract discount information
+    total_discount = node.get("totalDiscountsSet", {}).get("shopMoney", {}).get("amount", "0")
+    
+    # Extract discount codes
+    discount_codes = []
+    discount_codes_data = node.get("discountCodes", []) or []
+    for code_data in discount_codes_data:
+        discount_codes.append({
+            "code": code_data.get("code", ""),
+            "amount": code_data.get("amount", "0")
+        })
+    
+    # Extract discount applications (detailed discount info)
+    discount_applications = []
+    discount_apps_data = node.get("discountApplications", []) or []
+    for app in discount_apps_data:
+        value_data = app.get("value", {})
+        discount_value = {}
+        if "amount" in value_data:
+            # MoneyV2 type
+            discount_value = {
+                "type": "money",
+                "amount": value_data.get("amount", "0"),
+                "currency_code": value_data.get("currencyCode", "")
+            }
+        elif "percentage" in value_data:
+            # PricingPercentageValue type
+            discount_value = {
+                "type": "percentage",
+                "percentage": value_data.get("percentage", 0)
+            }
+        
+        discount_applications.append({
+            "target_type": app.get("targetType", ""),
+            "target_selection": app.get("targetSelection", ""),
+            "allocation_method": app.get("allocationMethod", ""),
+            "value": discount_value,
+            "title": app.get("title", ""),
+            "description": app.get("description", "")
+        })
+    
     return {
         "id": node.get("id", ""),
         "order_number": order_number,
@@ -195,6 +228,9 @@ def transform_order(node: Dict) -> Dict:
         "total_tax": tax,
         "tax_lines": tax_lines,  # Detailed tax breakdown
         "total_price": total,
+        "total_discount": total_discount,  # Total discount amount
+        "discount_codes": discount_codes,  # List of discount codes applied
+        "discount_applications": discount_applications,  # Detailed discount applications
         "total_cost": str(total_cost),
         "currency": node.get("currencyCode", "USD")
     }
@@ -273,13 +309,6 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                     vendor
                     productType
                     tags
-                    collections(first: 5) {
-                      edges {
-                        node {
-                          title
-                        }
-                      }
-                    }
                   }
                 }
               }
@@ -312,6 +341,32 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 amount
                 currencyCode
               }
+            }
+            totalDiscountsSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            discountCodes {
+              code
+              amount
+            }
+            discountApplications {
+              targetType
+              targetSelection
+              allocationMethod
+              value {
+                ... on MoneyV2 {
+                  amount
+                  currencyCode
+                }
+                ... on PricingPercentageValue {
+                  percentage
+                }
+              }
+              title
+              description
             }
             currencyCode
           }
@@ -359,13 +414,6 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                     vendor
                     productType
                     tags
-                    collections(first: 5) {
-                      edges {
-                        node {
-                          title
-                        }
-                      }
-                    }
                   }
                 }
               }
@@ -399,6 +447,32 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 currencyCode
               }
             }
+            totalDiscountsSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            discountCodes {
+              code
+              amount
+            }
+            discountApplications {
+              targetType
+              targetSelection
+              allocationMethod
+              value {
+                ... on MoneyV2 {
+                  amount
+                  currencyCode
+                }
+                ... on PricingPercentageValue {
+                  percentage
+                }
+              }
+              title
+              description
+            }
             currencyCode
           }
         }
@@ -422,7 +496,8 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
     end_date_next = (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
     query_string = f"created_at:>={start_date} AND created_at:<{end_date_next}"
     
-    # Try with cost first, fallback to without cost if it fails
+    # Use cost query - cost data is needed for calculations
+    # Collections removed to keep query cost manageable
     use_cost_query = True
     query = query_with_cost
     
