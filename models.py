@@ -4,7 +4,7 @@ Database models for user authentication and configuration storage.
 
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey, JSON, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -21,6 +21,7 @@ class User(UserMixin, Base):
     username = Column(String(80), unique=True, nullable=False)
     email = Column(String(120), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    is_admin = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -49,6 +50,10 @@ class UserConfig(Base):
     access_token = Column(Text, default='')  # Store encrypted in production
     api_version = Column(String(20), default='2024-01')
     export_path = Column(String(500), default='')
+    # Google Sheets OAuth
+    gsheets_oauth_token = Column(Text, default='')  # JSON-encoded OAuth token
+    gsheets_spreadsheet_id = Column(String(255), default='')
+    gsheets_user_email = Column(String(255), default='')  # Store user's Google email
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -62,6 +67,11 @@ class UserConfig(Base):
                 'shop_domain': self.shop_domain or '',
                 'access_token': self.access_token or '',
                 'api_version': self.api_version or '2024-01'
+            },
+            'google_sheets': {
+                'enabled': bool(self.gsheets_oauth_token),
+                'spreadsheet_id': self.gsheets_spreadsheet_id or '',
+                'user_email': self.gsheets_user_email or ''
             },
             'export_path': self.export_path or '',
             'product_rules': []

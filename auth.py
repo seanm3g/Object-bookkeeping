@@ -2,12 +2,24 @@
 Authentication routes and user management.
 """
 
-from flask import Blueprint, render_template_string, request, jsonify, redirect, url_for, flash
+from flask import Blueprint, render_template_string, request, jsonify, redirect, url_for, flash, abort
 from flask_login import login_user, logout_user, login_required, current_user
+from functools import wraps
 from models import User, UserConfig, get_db_session, init_db
 from werkzeug.security import check_password_hash
 
 auth_bp = Blueprint('auth', __name__)
+
+
+def admin_required(f):
+    """Decorator to require admin privileges."""
+    @wraps(f)
+    @login_required
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_admin:
+            abort(403)  # Forbidden
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Login template
 LOGIN_TEMPLATE = """
@@ -292,8 +304,12 @@ def register():
                 if existing_user:
                     error = 'Username or email already exists'
                 else:
+                    # Check if this is the first user (make them admin)
+                    user_count = session.query(User).count()
+                    is_first_user = user_count == 0
+                    
                     # Create new user
-                    user = User(username=username, email=email)
+                    user = User(username=username, email=email, is_admin=is_first_user)
                     user.set_password(password)
                     session.add(user)
                     session.commit()
@@ -322,4 +338,242 @@ def logout():
     """Logout handler."""
     logout_user()
     return redirect(url_for('auth.login'))
+
+
+# Admin panel template
+ADMIN_PANEL_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Panel - User Management</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            margin: 0;
+            color: #333;
+        }
+        .nav {
+            margin-top: 10px;
+        }
+        .nav a {
+            color: #007AFF;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav a:hover {
+            text-decoration: underline;
+        }
+        .users-table {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        tr:hover {
+            background: #f8f9fa;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge-admin {
+            background: #007AFF;
+            color: white;
+        }
+        .badge-user {
+            background: #6c757d;
+            color: white;
+        }
+        .danger {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .danger:hover {
+            background: #c82333;
+        }
+        .message {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .empty {
+            padding: 40px;
+            text-align: center;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Admin Panel - User Management</h1>
+        <div class="nav">
+            <a href="/">← Back to App</a>
+            <a href="/logout">Logout</a>
+        </div>
+    </div>
+    
+    {% if message %}
+    <div class="message {{ message_type }}">{{ message }}</div>
+    {% endif %}
+    
+    <div class="users-table">
+        {% if users %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Username</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user.id }}</td>
+                    <td>{{ user.username }}</td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                        {% if user.is_admin %}
+                        <span class="badge badge-admin">Admin</span>
+                        {% else %}
+                        <span class="badge badge-user">User</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else 'N/A' }}</td>
+                    <td>
+                        {% if not user.is_admin %}
+                        <button class="danger" onclick="deleteUser({{ user.id }}, '{{ user.username }}')">Delete</button>
+                        {% else %}
+                        <span style="color: #6c757d;">Admin account</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty">No users found.</div>
+        {% endif %}
+    </div>
+    
+    <script>
+        function deleteUser(userId, username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+                return;
+            }
+            
+            fetch(`/admin/users/${userId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('User deleted successfully');
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to delete user'));
+                }
+            })
+            .catch(error => {
+                alert('Error: ' + error.message);
+            });
+        }
+    </script>
+</body>
+</html>
+"""
+
+
+@auth_bp.route('/admin')
+@admin_required
+def admin_panel():
+    """Admin panel to view and manage users."""
+    session = get_db_session()
+    try:
+        users = session.query(User).order_by(User.created_at.desc()).all()
+        message = request.args.get('message')
+        message_type = request.args.get('type', 'success')
+        return render_template_string(ADMIN_PANEL_TEMPLATE, users=users, message=message, message_type=message_type)
+    finally:
+        session.close()
+
+
+@auth_bp.route('/admin/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def delete_user(user_id):
+    """Delete a user account."""
+    session = get_db_session()
+    try:
+        user = session.query(User).get(user_id)
+        if not user:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        
+        # Prevent deleting yourself
+        if user.id == current_user.id:
+            return jsonify({'success': False, 'error': 'Cannot delete your own account'}), 400
+        
+        # Prevent deleting other admins
+        if user.is_admin:
+            return jsonify({'success': False, 'error': 'Cannot delete admin accounts'}), 400
+        
+        # Delete user (cascade will delete config and rules)
+        session.delete(user)
+        session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        session.close()
 

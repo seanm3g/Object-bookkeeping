@@ -4,7 +4,7 @@ Simple Flask web interface that runs in your browser.
 Supports multi-user authentication for hosted deployment.
 """
 
-from flask import Flask, render_template_string, request, jsonify, send_file, redirect, url_for
+from flask import Flask, render_template_string, request, jsonify, send_file, redirect, url_for, session
 from flask_login import LoginManager, login_required, current_user
 import json
 import os
@@ -14,10 +14,22 @@ import time
 import subprocess
 import sys
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
+
+try:
+    from google_auth_oauthlib.flow import Flow
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    OAUTH_AVAILABLE = True
+except ImportError:
+    OAUTH_AVAILABLE = False
+    Flow = None
+    Credentials = None
+    build = None
 
 from shopify_client import fetch_orders
 from rule_engine import RuleEngine
-from exporter import export_to_csv
+from exporter import export_to_csv, export_to_google_sheets
 from models import User, UserConfig, UserRule, init_db, get_db_session
 from auth import auth_bp
 
@@ -83,12 +95,12 @@ def load_config():
 def save_config(config):
     """Save configuration to database for current user, or JSON file as fallback."""
     if current_user.is_authenticated:
-        session = get_db_session()
+        db_session = get_db_session()
         try:
-            user_config = session.query(UserConfig).filter_by(user_id=current_user.id).first()
+            user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
             if not user_config:
                 user_config = UserConfig(user_id=current_user.id)
-                session.add(user_config)
+                db_session.add(user_config)
             
             # Update config
             shopify = config.get('shopify', {})
@@ -96,14 +108,21 @@ def save_config(config):
             user_config.access_token = shopify.get('access_token', '')
             user_config.api_version = shopify.get('api_version', '2024-01')
             user_config.export_path = config.get('export_path', '')
+            
+            # Update Google Sheets config (but don't overwrite OAuth token if not provided)
+            gsheets = config.get('google_sheets', {})
+            if 'spreadsheet_id' in gsheets:
+                user_config.gsheets_spreadsheet_id = gsheets.get('spreadsheet_id', '')
+            # OAuth token is saved separately via OAuth callback
+            
             user_config.updated_at = datetime.utcnow()
             
-            session.commit()
+            db_session.commit()
         except Exception as e:
-            session.rollback()
+            db_session.rollback()
             raise e
         finally:
-            session.close()
+            db_session.close()
     else:
         # Fallback to JSON file
         with open(CONFIG_PATH, "w") as f:
@@ -324,6 +343,9 @@ HTML_TEMPLATE = """
         <h1>Shopify Order Categorization</h1>
         <div class="nav-links">
             <span class="username">Logged in as: {{ current_user.username }}</span>
+            {% if current_user.is_admin %}
+            <a href="/admin">Admin Panel</a>
+            {% endif %}
             <a href="/logout">Logout</a>
         </div>
     </div>
@@ -352,6 +374,7 @@ HTML_TEMPLATE = """
             <div style="display: flex; gap: 10px; align-items: center;">
                 <button type="submit">Fetch Orders</button>
                 <button onclick="exportCSV()" id="exportBtn" disabled>Export to CSV</button>
+                <button onclick="exportGoogleSheets()" id="exportGSheetsBtn" disabled>Export to Google Sheets</button>
             </div>
         </form>
         <div id="results"></div>
@@ -446,6 +469,28 @@ HTML_TEMPLATE = """
                 <input type="text" name="export_path" value="{{ config.get('export_path', '') }}" placeholder="Leave empty for browser default (Downloads folder)">
                 <small style="color: #666; display: block; margin-top: 5px;">Files will be saved to your browser's default download location if not specified.</small>
             </div>
+            
+            <h3 style="margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px;">Google Sheets Export</h3>
+            <div class="form-group">
+                {% if config.google_sheets.get('enabled') and config.google_sheets.get('user_email') %}
+                <div style="padding: 10px; background: #d4edda; border-radius: 4px; margin-bottom: 10px;">
+                    <strong>✓ Connected as:</strong> {{ config.google_sheets.user_email }}
+                </div>
+                {% else %}
+                <div style="padding: 10px; background: #fff3cd; border-radius: 4px; margin-bottom: 10px;">
+                    <strong>Not connected.</strong> Click the button below to sign in with Google.
+                </div>
+                <a href="/auth/google" style="display: inline-block; padding: 10px 20px; background: #4285f4; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 15px;">
+                    Sign in with Google
+                </a>
+                {% endif %}
+            </div>
+            <div class="form-group">
+                <label>Spreadsheet ID (optional):</label>
+                <input type="text" name="gsheets_spreadsheet_id" id="gsheets_spreadsheet_id" value="{{ config.google_sheets.get('spreadsheet_id', '') }}" placeholder="Leave empty to create a new spreadsheet each time">
+                <small style="color: #666; display: block; margin-top: 5px;">If provided, exports will be added to this spreadsheet. If empty, a new spreadsheet will be created for each export.</small>
+            </div>
+            
             <button type="submit">Save Configuration</button>
         </form>
     </div>
@@ -457,10 +502,13 @@ HTML_TEMPLATE = """
         document.getElementById('configForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData);
+            // Add Google Sheets spreadsheet_id
+            data.gsheets_spreadsheet_id = document.getElementById('gsheets_spreadsheet_id').value;
             const response = await fetch('/api/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(Object.fromEntries(formData))
+                body: JSON.stringify(data)
             });
             const result = await response.json();
             if (result.success) {
@@ -468,6 +516,18 @@ HTML_TEMPLATE = """
                 location.reload();
             }
         });
+        
+        // Check for OAuth callback messages
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('google_auth') === 'success') {
+            alert('Successfully connected to Google! You can now export to Google Sheets.');
+            // Remove query params from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+        } else if (urlParams.get('error')) {
+            const error = urlParams.get('error');
+            alert('Error: ' + error);
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
         
         let componentCounter = 0;
         const componentTypes = ['revenue', 'investor', 'state_taxes', 'federal_taxes', 'consigner'];
@@ -731,6 +791,7 @@ HTML_TEMPLATE = """
         
         function updateExportButton(stats) {
             const exportBtn = document.getElementById('exportBtn');
+            const exportGSheetsBtn = document.getElementById('exportGSheetsBtn');
             
             // Remove all state classes
             exportBtn.classList.remove('export-yellow', 'export-green');
@@ -739,14 +800,19 @@ HTML_TEMPLATE = """
                 // No orders fetched or no orders
                 exportBtn.disabled = true;
                 exportBtn.className = '';
+                exportGSheetsBtn.disabled = true;
             } else if (stats.unmatched > 0) {
                 // There are unmatched orders - yellow
                 exportBtn.disabled = false;
                 exportBtn.className = 'export-yellow';
+                exportGSheetsBtn.disabled = false;
+                exportGSheetsBtn.className = 'export-yellow';
             } else {
                 // All orders matched - green
                 exportBtn.disabled = false;
                 exportBtn.className = 'export-green';
+                exportGSheetsBtn.disabled = false;
+                exportGSheetsBtn.className = 'export-green';
             }
         }
         
@@ -872,6 +938,57 @@ HTML_TEMPLATE = """
                 alert('Export failed: ' + (result.error || 'Unknown error'));
             }
         }
+        
+        async function exportGoogleSheets() {
+            // Use all orders for export (matched + unmatched)
+            const ordersToExport = allOrdersData.length > 0 ? allOrdersData : ordersData;
+            
+            if (ordersToExport.length === 0) {
+                alert('No orders to export');
+                return;
+            }
+            
+            // Get spreadsheet ID from config form (optional)
+            const spreadsheetId = document.getElementById('gsheets_spreadsheet_id').value.trim() || null;
+            
+            // Disable button during export
+            const exportBtn = document.getElementById('exportGSheetsBtn');
+            const originalText = exportBtn.textContent;
+            exportBtn.disabled = true;
+            exportBtn.textContent = 'Exporting...';
+            
+            try {
+                const response = await fetch('/api/export-google-sheets', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        breakdowns: ordersToExport,
+                        spreadsheet_id: spreadsheetId
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    const message = result.message || 'Successfully exported to Google Sheets!';
+                    const url = result.spreadsheet_url;
+                    if (url) {
+                        if (confirm(message + '\\n\\nOpen spreadsheet in new tab?')) {
+                            window.open(url, '_blank');
+                        }
+                    } else {
+                        alert(message);
+                    }
+                } else {
+                    alert('Export failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (error) {
+                alert('Export failed: ' + error.message);
+            } finally {
+                exportBtn.disabled = false;
+                exportBtn.textContent = originalText;
+            }
+        }
     </script>
 </body>
 </html>
@@ -899,6 +1016,10 @@ def save_config_api():
         config['shopify']['access_token'] = data.get('access_token', '')
         config['shopify']['api_version'] = data.get('api_version', '2024-01')
         config['export_path'] = data.get('export_path', '')
+        # Update Google Sheets spreadsheet_id
+        if 'google_sheets' not in config:
+            config['google_sheets'] = {}
+        config['google_sheets']['spreadsheet_id'] = data.get('gsheets_spreadsheet_id', '')
         save_config(config)
         return jsonify({'success': True})
     except Exception as e:
@@ -1114,6 +1235,217 @@ def export_csv_api():
                 temp_path = f.name
             export_to_csv(breakdowns, temp_path)
             return send_file(temp_path, as_attachment=True, download_name=filename, mimetype='text/csv')
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+def get_oauth_config():
+    """Get OAuth client configuration from environment or config."""
+    client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
+    client_secret = os.environ.get('GOOGLE_CLIENT_SECRET', '')
+    
+    # Try to load from config.json as fallback
+    if not client_id or not client_secret:
+        try:
+            if os.path.exists(CONFIG_PATH):
+                with open(CONFIG_PATH, "r") as f:
+                    config = json.load(f)
+                    oauth_config = config.get('google_oauth', {})
+                    client_id = client_id or oauth_config.get('client_id', '')
+                    client_secret = client_secret or oauth_config.get('client_secret', '')
+        except:
+            pass
+    
+    return client_id, client_secret
+
+
+@app.route('/auth/google')
+@login_required
+def google_auth():
+    """Initiate Google OAuth flow."""
+    if not OAUTH_AVAILABLE:
+        return jsonify({'success': False, 'error': 'OAuth libraries not installed'}), 400
+    
+    client_id, client_secret = get_oauth_config()
+    if not client_id or not client_secret:
+        return jsonify({'success': False, 'error': 'Google OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.'}), 400
+    
+    # OAuth scopes
+    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    
+    # Create OAuth flow
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [request.url_root.rstrip('/') + '/auth/google/callback']
+            }
+        },
+        scopes=SCOPES
+    )
+    
+    # Determine redirect URI
+    redirect_uri = request.url_root.rstrip('/') + '/auth/google/callback'
+    flow.redirect_uri = redirect_uri
+    
+    # Generate authorization URL
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent'  # Force consent to get refresh token
+    )
+    
+    # Store state in session
+    session['oauth_state'] = state
+    session['oauth_user_id'] = current_user.id
+    
+    return redirect(authorization_url)
+
+
+@app.route('/auth/google/callback')
+@login_required
+def google_auth_callback():
+    """Handle Google OAuth callback."""
+    if not OAUTH_AVAILABLE:
+        return redirect(url_for('index') + '?error=oauth_not_available')
+    
+    # Verify state
+    state = session.get('oauth_state')
+    if not state or state != request.args.get('state'):
+        return redirect(url_for('index') + '?error=invalid_state')
+    
+    # Verify user
+    user_id = session.get('oauth_user_id')
+    if not user_id or user_id != current_user.id:
+        return redirect(url_for('index') + '?error=invalid_user')
+    
+    client_id, client_secret = get_oauth_config()
+    if not client_id or not client_secret:
+        return redirect(url_for('index') + '?error=oauth_not_configured')
+    
+    try:
+        # Create OAuth flow
+        SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+        redirect_uri = request.url_root.rstrip('/') + '/auth/google/callback'
+        
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [redirect_uri]
+                }
+            },
+            scopes=SCOPES,
+            state=state
+        )
+        flow.redirect_uri = redirect_uri
+        
+        # Fetch token
+        flow.fetch_token(authorization_response=request.url)
+        
+        # Get credentials
+        creds = flow.credentials
+        
+        # Get user info
+        service = build('oauth2', 'v2', credentials=creds)
+        user_info = service.userinfo().get().execute()
+        user_email = user_info.get('email', '')
+        
+        # Save token to database
+        db_session = get_db_session()
+        try:
+            user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+            if not user_config:
+                user_config = UserConfig(user_id=current_user.id)
+                db_session.add(user_config)
+            
+            # Convert credentials to dict for storage
+            token_dict = {
+                'token': creds.token,
+                'refresh_token': creds.refresh_token,
+                'token_uri': creds.token_uri,
+                'client_id': creds.client_id,
+                'client_secret': creds.client_secret,
+                'scopes': creds.scopes
+            }
+            
+            user_config.gsheets_oauth_token = json.dumps(token_dict)
+            user_config.gsheets_user_email = user_email
+            user_config.updated_at = datetime.utcnow()
+            
+            db_session.commit()
+        except Exception as e:
+            db_session.rollback()
+            return redirect(url_for('index') + '?error=save_failed')
+        finally:
+            db_session.close()
+        
+        # Clean up session
+        session.pop('oauth_state', None)
+        session.pop('oauth_user_id', None)
+        
+        return redirect(url_for('index') + '?google_auth=success')
+        
+    except Exception as e:
+        return redirect(url_for('index') + f'?error={str(e)}')
+
+
+@app.route('/api/export-google-sheets', methods=['POST'])
+@login_required
+def export_google_sheets_api():
+    """Export to Google Sheets."""
+    try:
+        if not OAUTH_AVAILABLE:
+            return jsonify({'success': False, 'error': 'OAuth libraries not installed. Please install: pip install google-auth-oauthlib'}), 400
+        
+        data = request.json
+        breakdowns = data.get('breakdowns', [])
+        spreadsheet_id = data.get('spreadsheet_id', '') or None
+        
+        # Get user's OAuth token
+        db_session = get_db_session()
+        try:
+            user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+            if not user_config or not user_config.gsheets_oauth_token:
+                return jsonify({'success': False, 'error': 'Not authenticated with Google. Please sign in with Google first.'}), 400
+            
+            oauth_token_json = user_config.gsheets_oauth_token
+            if spreadsheet_id is None:
+                spreadsheet_id = user_config.gsheets_spreadsheet_id or None
+        finally:
+            db_session.close()
+        
+        # Get OAuth client credentials for token refresh
+        client_id, client_secret = get_oauth_config()
+        
+        # Call export function
+        result = export_to_google_sheets(
+            breakdowns=breakdowns,
+            oauth_token_json=oauth_token_json,
+            spreadsheet_id=spreadsheet_id,
+            client_id=client_id,
+            client_secret=client_secret
+        )
+        
+        # If export succeeded and we got a new spreadsheet_id, save it
+        if result.get('success') and result.get('spreadsheet_id'):
+            db_session = get_db_session()
+            try:
+                user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+                if user_config and not user_config.gsheets_spreadsheet_id:
+                    user_config.gsheets_spreadsheet_id = result['spreadsheet_id']
+                    db_session.commit()
+            finally:
+                db_session.close()
+        
+        return jsonify(result)
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
