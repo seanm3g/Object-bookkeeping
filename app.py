@@ -873,12 +873,19 @@ HTML_TEMPLATE = """
                             : b.shopify_tax_breakdown;
                         shopifyTaxHtml = `<br><small style="color: #0066cc;"><strong>Shopify Taxes:</strong> ${taxBreakdown}</small>`;
                     }
+                    
+                    // Only show financial breakdown for matched orders
+                    const isMatched = b.matched_rules && b.matched_rules !== "No match";
+                    let financialBreakdownHtml = '';
+                    if (isMatched) {
+                        financialBreakdownHtml = `<br>Revenue: $${b.revenue.toFixed(2)} | Investor: $${b.investor.toFixed(2)} | State Taxes: $${b.state_taxes.toFixed(2)} | Federal Taxes: $${b.federal_taxes.toFixed(2)} | Consigner: $${b.consigner.toFixed(2)}${breakdownHtml}`;
+                    }
+                    
                     html += `<div class="order-item">
                         <strong>Order #${b.order_number}</strong> - ${b.date}<br>
                         Customer: ${b.customer}<br>
                         Products: ${b.products}${metadataHtml}<br>
-                        Total: $${b.order_total.toFixed(2)} | Cost: $${(b.total_cost || 0).toFixed(2)}${shopifyTaxHtml}<br>
-                        Revenue: $${b.revenue.toFixed(2)} | Investor: $${b.investor.toFixed(2)} | State Taxes: $${b.state_taxes.toFixed(2)} | Federal Taxes: $${b.federal_taxes.toFixed(2)} | Consigner: $${b.consigner.toFixed(2)}${breakdownHtml}
+                        Total: $${b.order_total.toFixed(2)} | Cost: $${(b.total_cost || 0).toFixed(2)}${shopifyTaxHtml}${financialBreakdownHtml}
                         Rule: ${b.matched_rules}
                     </div>`;
                 });
