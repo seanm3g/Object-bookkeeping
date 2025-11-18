@@ -355,10 +355,34 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         # Create credentials from token
         creds = Credentials.from_authorized_user_info(token_data)
         
+        # Track if token was updated (for saving back to DB)
+        token_updated = False
+        
         # Refresh token if needed
         if creds.expired and creds.refresh_token:
             if client_id and client_secret:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                    # Google may add 'openid' scope automatically - this is normal and harmless
+                    # Update stored scopes if they've changed (e.g., openid was added)
+                    stored_scopes = set(token_data.get('scopes', []))
+                    new_scopes = set(creds.scopes) if creds.scopes else set()
+                    
+                    if new_scopes != stored_scopes:
+                        # Scopes changed (likely openid was added) - update stored token
+                        token_data['scopes'] = list(creds.scopes) if creds.scopes else []
+                        token_data['token'] = creds.token
+                        token_updated = True
+                except Exception as refresh_error:
+                    # If refresh fails due to scope mismatch, try to handle it
+                    error_str = str(refresh_error)
+                    if 'scope' in error_str.lower() and 'changed' in error_str.lower():
+                        # Scope mismatch - user needs to re-authenticate
+                        return {
+                            'success': False,
+                            'error': 'OAuth scopes have changed. Please disconnect and sign in with Google again.'
+                        }
+                    raise
             else:
                 return {
                     'success': False,
@@ -527,12 +551,18 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         
         spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
         
-        return {
+        result = {
             'success': True,
             'spreadsheet_id': spreadsheet_id,
             'spreadsheet_url': spreadsheet_url,
             'message': f'Successfully exported {len(breakdowns)} orders to Google Sheets'
         }
+        
+        # If token was updated (e.g., scopes changed to include openid), return it to save back to DB
+        if token_updated:
+            result['updated_token'] = token_data
+        
+        return result
         
     except json.JSONDecodeError:
         return {

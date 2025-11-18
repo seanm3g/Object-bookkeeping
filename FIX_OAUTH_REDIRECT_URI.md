@@ -62,6 +62,36 @@ If you're using the same OAuth credentials for both local development and produc
 1. `http://127.0.0.1:5001/auth/google/callback` (for local development)
 2. `https://object-bookkeeping.onrender.com/auth/google/callback` (for production)
 
+## Fix: OAuth 401 Error (Missing Authentication Credential)
+
+If you're seeing an error like:
+```
+HttpError 401: Request is missing required authentication credential
+```
+
+This usually means:
+1. **You have an old OAuth token** that was authorized with only the `spreadsheets` scope
+2. **The code needs to be redeployed** with the updated scopes
+
+### Solution:
+
+1. **Make sure your code is deployed** with the latest changes (the code now requests both `spreadsheets` and `userinfo.email` scopes)
+
+2. **Clear your old OAuth token**:
+   - Go to your app's Configuration page
+   - If you see "✓ Connected as: [email]", click the **"Disconnect"** button
+   - This will clear the old token
+
+3. **Re-authorize with Google**:
+   - Click **"Sign in with Google"** again
+   - You'll be prompted to authorize both scopes
+   - This will create a new token with the correct permissions
+
+4. **Alternative: Revoke access in Google**:
+   - Go to [Google Account Security](https://myaccount.google.com/permissions)
+   - Find your app and click "Remove Access"
+   - Then sign in again from your app
+
 ## Still Not Working?
 
 1. **Double-check the exact URL**: Make sure there are no typos, and it matches exactly (including `https://` and the trailing `/auth/google/callback`)
@@ -73,9 +103,13 @@ If you're using the same OAuth credentials for both local development and produc
 
 3. **Verify OAuth credentials**: Make sure the Client ID and Client Secret in your environment variables match the ones in Google Cloud Console
 
-4. **Check OAuth consent screen**: Make sure your OAuth consent screen is properly configured (see [GOOGLE_SHEETS_SETUP.md](GOOGLE_SHEETS_SETUP.md))
+4. **Check OAuth consent screen**: Make sure your OAuth consent screen includes both scopes:
+   - `https://www.googleapis.com/auth/spreadsheets`
+   - `https://www.googleapis.com/auth/userinfo.email`
 
 5. **Wait longer**: Sometimes it can take up to 10 minutes for changes to propagate
+
+6. **Verify code is deployed**: Make sure the latest code with both scopes is deployed to your server
 
 ## Need Help?
 

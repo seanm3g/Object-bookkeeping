@@ -52,7 +52,11 @@ login_manager.login_message = 'Please log in to access this page.'
 app.register_blueprint(auth_bp)
 
 # Initialize database
-init_db()
+try:
+    init_db()
+except Exception as e:
+    print(f"CRITICAL: Database initialization failed: {e}")
+    print("The app will continue but data may not persist. Check your DATABASE_URL environment variable.")
 
 CONFIG_PATH = "config.json"  # Fallback for migration
 
@@ -106,7 +110,7 @@ def save_config(config):
             shopify = config.get('shopify', {})
             user_config.shop_domain = shopify.get('shop_domain', '')
             user_config.access_token = shopify.get('access_token', '')
-            user_config.api_version = shopify.get('api_version', '2024-01')
+            user_config.api_version = shopify.get('api_version', '2025-10')
             user_config.export_path = config.get('export_path', '')
             
             # Update Google Sheets config (but don't overwrite OAuth token if not provided)
@@ -135,7 +139,7 @@ def get_default_config():
         "shopify": {
             "shop_domain": "",
             "access_token": "",
-            "api_version": "2024-01"
+            "api_version": "2025-10"
         },
         "google_sheets": {
             "enabled": False,
@@ -475,6 +479,7 @@ HTML_TEMPLATE = """
                 {% if config.google_sheets.get('enabled') and config.google_sheets.get('user_email') %}
                 <div style="padding: 10px; background: #d4edda; border-radius: 4px; margin-bottom: 10px;">
                     <strong>✓ Connected as:</strong> {{ config.google_sheets.user_email }}
+                    <button onclick="disconnectGoogle()" style="margin-left: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Disconnect</button>
                 </div>
                 {% else %}
                 <div style="padding: 10px; background: #fff3cd; border-radius: 4px; margin-bottom: 10px;">
@@ -822,7 +827,10 @@ HTML_TEMPLATE = """
             
             // Display statistics
             if (stats) {
-                html += `<div class="success" style="margin-bottom: 20px;">
+                // Set background color based on unmatched count
+                const bgColor = stats.unmatched > 0 ? '#fff3cd' : '#d4edda'; // Yellow if unmatched, green if 0
+                const textColor = stats.unmatched > 0 ? '#856404' : '#28a745'; // Dark yellow text if unmatched, green if 0
+                html += `<div class="success" style="margin-bottom: 20px; background: ${bgColor}; color: ${textColor};">
                     <strong>Order Statistics:</strong><br>
                     Total Orders: ${stats.total}<br>
                     Matched Rules: ${stats.matched}<br>
@@ -939,6 +947,23 @@ HTML_TEMPLATE = """
             }
         }
         
+        async function disconnectGoogle() {
+            if (!confirm('Are you sure you want to disconnect your Google account? You will need to sign in again to export to Google Sheets.')) {
+                return;
+            }
+            const response = await fetch('/api/disconnect-google', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            });
+            const result = await response.json();
+            if (result.success) {
+                alert('Google account disconnected successfully');
+                location.reload();
+            } else {
+                alert('Error: ' + (result.error || 'Failed to disconnect'));
+            }
+        }
+        
         async function exportGoogleSheets() {
             // Use all orders for export (matched + unmatched)
             const ordersToExport = allOrdersData.length > 0 ? allOrdersData : ordersData;
@@ -1014,7 +1039,7 @@ def save_config_api():
         data = request.json
         config['shopify']['shop_domain'] = data.get('shop_domain', '')
         config['shopify']['access_token'] = data.get('access_token', '')
-        config['shopify']['api_version'] = data.get('api_version', '2024-01')
+        config['shopify']['api_version'] = data.get('api_version', '2025-10')
         config['export_path'] = data.get('export_path', '')
         # Update Google Sheets spreadsheet_id
         if 'google_sheets' not in config:
@@ -1378,13 +1403,14 @@ def google_auth_callback():
                 db_session.add(user_config)
             
             # Convert credentials to dict for storage
+            # Note: Google may add 'openid' scope automatically - this is normal
             token_dict = {
                 'token': creds.token,
                 'refresh_token': creds.refresh_token,
                 'token_uri': creds.token_uri,
                 'client_id': creds.client_id,
                 'client_secret': creds.client_secret,
-                'scopes': creds.scopes
+                'scopes': creds.scopes  # May include 'openid' which is fine
             }
             
             user_config.gsheets_oauth_token = json.dumps(token_dict)
@@ -1406,6 +1432,29 @@ def google_auth_callback():
         
     except Exception as e:
         return redirect(url_for('index') + f'?error={str(e)}')
+
+
+@app.route('/api/disconnect-google', methods=['POST'])
+@login_required
+def disconnect_google():
+    """Disconnect Google OAuth by clearing stored tokens."""
+    try:
+        db_session = get_db_session()
+        try:
+            user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+            if user_config:
+                user_config.gsheets_oauth_token = None
+                user_config.gsheets_user_email = None
+                user_config.updated_at = datetime.utcnow()
+                db_session.commit()
+            return jsonify({'success': True})
+        except Exception as e:
+            db_session.rollback()
+            return jsonify({'success': False, 'error': str(e)}), 400
+        finally:
+            db_session.close()
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
 
 
 @app.route('/api/export-google-sheets', methods=['POST'])
@@ -1445,16 +1494,30 @@ def export_google_sheets_api():
             client_secret=client_secret
         )
         
-        # If export succeeded and we got a new spreadsheet_id, save it
-        if result.get('success') and result.get('spreadsheet_id'):
-            db_session = get_db_session()
-            try:
-                user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
-                if user_config and not user_config.gsheets_spreadsheet_id:
-                    user_config.gsheets_spreadsheet_id = result['spreadsheet_id']
-                    db_session.commit()
-            finally:
-                db_session.close()
+        # If export succeeded, check if we need to update stored token (e.g., scopes changed)
+        if result.get('success'):
+            # Check if token was updated (e.g., scopes changed to include openid)
+            updated_token = result.get('updated_token')
+            if updated_token:
+                db_session = get_db_session()
+                try:
+                    user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+                    if user_config:
+                        user_config.gsheets_oauth_token = json.dumps(updated_token)
+                        db_session.commit()
+                finally:
+                    db_session.close()
+            
+            # If export succeeded and we got a new spreadsheet_id, save it
+            if result.get('spreadsheet_id'):
+                db_session = get_db_session()
+                try:
+                    user_config = db_session.query(UserConfig).filter_by(user_id=current_user.id).first()
+                    if user_config and not user_config.gsheets_spreadsheet_id:
+                        user_config.gsheets_spreadsheet_id = result['spreadsheet_id']
+                        db_session.commit()
+                finally:
+                    db_session.close()
         
         return jsonify(result)
         

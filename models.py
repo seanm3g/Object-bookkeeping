@@ -48,7 +48,7 @@ class UserConfig(Base):
     user_id = Column(Integer, ForeignKey('users.id'), unique=True, nullable=False)
     shop_domain = Column(String(255), default='')
     access_token = Column(Text, default='')  # Store encrypted in production
-    api_version = Column(String(20), default='2024-01')
+    api_version = Column(String(20), default='2025-10')
     export_path = Column(String(500), default='')
     # Google Sheets OAuth
     gsheets_oauth_token = Column(Text, default='')  # JSON-encoded OAuth token
@@ -66,7 +66,7 @@ class UserConfig(Base):
             'shopify': {
                 'shop_domain': self.shop_domain or '',
                 'access_token': self.access_token or '',
-                'api_version': self.api_version or '2024-01'
+                'api_version': self.api_version or '2025-10'
             },
             'google_sheets': {
                 'enabled': bool(self.gsheets_oauth_token),
@@ -118,18 +118,38 @@ def get_database_url():
         # Handle PostgreSQL URLs from hosting platforms
         if db_url.startswith('postgres://'):
             db_url = db_url.replace('postgres://', 'postgresql://', 1)
+        # Log that we're using PostgreSQL (but don't log the full URL with password)
+        db_type = "PostgreSQL" if db_url.startswith('postgresql://') else "Database"
+        print(f"[DATABASE] Using {db_type} from DATABASE_URL environment variable")
         return db_url
     # Default to SQLite in instance folder
     instance_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'instance')
     os.makedirs(instance_path, exist_ok=True)
-    return f'sqlite:///{os.path.join(instance_path, "app.db")}'
+    sqlite_path = f'sqlite:///{os.path.join(instance_path, "app.db")}'
+    print(f"[DATABASE] WARNING: DATABASE_URL not set, using SQLite at {sqlite_path}")
+    print(f"[DATABASE] NOTE: SQLite data will be lost on server restart. Set DATABASE_URL to use PostgreSQL.")
+    return sqlite_path
 
 
 def init_db():
     """Initialize database and create tables."""
-    engine = create_engine(get_database_url())
-    Base.metadata.create_all(engine)
-    return engine
+    try:
+        db_url = get_database_url()
+        # Create engine with connection pooling
+        engine = create_engine(db_url, pool_pre_ping=True, echo=False)
+        
+        # Test the connection
+        with engine.connect() as conn:
+            print(f"[DATABASE] Successfully connected to database")
+        
+        # Create tables
+        Base.metadata.create_all(engine)
+        print(f"[DATABASE] Database tables initialized successfully")
+        return engine
+    except Exception as e:
+        print(f"[DATABASE] ERROR: Failed to initialize database: {e}")
+        print(f"[DATABASE] This may cause data persistence issues!")
+        raise
 
 
 def get_db_session(engine=None):
