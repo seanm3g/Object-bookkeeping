@@ -176,19 +176,15 @@ def transform_order(node: Dict) -> Dict:
     # Extract discount information
     total_discount = node.get("totalDiscountsSet", {}).get("shopMoney", {}).get("amount", "0")
     
-    # Extract discount codes
-    discount_codes = []
-    discount_codes_data = node.get("discountCodes", []) or []
-    for code_data in discount_codes_data:
-        discount_codes.append({
-            "code": code_data.get("code", ""),
-            "amount": code_data.get("amount", "0")
-        })
+    # Extract discount codes (array of strings)
+    discount_codes = node.get("discountCodes", []) or []
     
-    # Extract discount applications (detailed discount info)
+    # Extract discount applications (detailed discount info) - uses edges/nodes structure
     discount_applications = []
-    discount_apps_data = node.get("discountApplications", []) or []
-    for app in discount_apps_data:
+    discount_apps_connection = node.get("discountApplications", {}) or {}
+    discount_apps_edges = discount_apps_connection.get("edges", []) or []
+    for edge in discount_apps_edges:
+        app = edge.get("node", {}) or {}
         value_data = app.get("value", {})
         discount_value = {}
         if "amount" in value_data:
@@ -348,25 +344,26 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 currencyCode
               }
             }
-            discountCodes {
-              code
-              amount
-            }
-            discountApplications {
-              targetType
-              targetSelection
-              allocationMethod
-              value {
-                ... on MoneyV2 {
-                  amount
-                  currencyCode
-                }
-                ... on PricingPercentageValue {
-                  percentage
+            discountCodes
+            discountApplications(first: 10) {
+              edges {
+                node {
+                  targetType
+                  targetSelection
+                  allocationMethod
+                  value {
+                    ... on MoneyV2 {
+                      amount
+                      currencyCode
+                    }
+                    ... on PricingPercentageValue {
+                      percentage
+                    }
+                  }
+                  title
+                  description
                 }
               }
-              title
-              description
             }
             currencyCode
           }
@@ -453,25 +450,26 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 currencyCode
               }
             }
-            discountCodes {
-              code
-              amount
-            }
-            discountApplications {
-              targetType
-              targetSelection
-              allocationMethod
-              value {
-                ... on MoneyV2 {
-                  amount
-                  currencyCode
-                }
-                ... on PricingPercentageValue {
-                  percentage
+            discountCodes
+            discountApplications(first: 10) {
+              edges {
+                node {
+                  targetType
+                  targetSelection
+                  allocationMethod
+                  value {
+                    ... on MoneyV2 {
+                      amount
+                      currencyCode
+                    }
+                    ... on PricingPercentageValue {
+                      percentage
+                    }
+                  }
+                  title
+                  description
                 }
               }
-              title
-              description
             }
             currencyCode
           }
