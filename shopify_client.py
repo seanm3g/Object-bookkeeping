@@ -451,7 +451,11 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
             elif not response.ok:
                 raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
             
-            data = response.json()
+            # Parse JSON response
+            try:
+                data = response.json()
+            except json.JSONDecodeError as e:
+                raise Exception(f"Invalid JSON response from Shopify API: {str(e)}. Response text: {response.text[:500]}")
             
             # Check for GraphQL errors
             if "errors" in data:
@@ -499,8 +503,25 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 if cost_access_error:
                     print("Warning: Unable to fetch product costs. Cost data will be set to $0.00.")
             
-            if "data" not in data or "orders" not in data["data"]:
-                raise Exception("Unexpected response format from Shopify API")
+            # Check response structure
+            if "data" not in data:
+                # Log the actual response for debugging
+                response_preview = str(data)[:500] if data else "Empty response"
+                # Check if there are errors we might have missed
+                if "errors" in data:
+                    error_details = "; ".join([str(e) for e in data["errors"]])
+                    raise Exception(f"Unexpected response format from Shopify API: Response does not contain 'data' field. Errors found: {error_details}. Response preview: {response_preview}")
+                raise Exception(f"Unexpected response format from Shopify API: Response does not contain 'data' field. Response preview: {response_preview}")
+            
+            if "orders" not in data["data"]:
+                # Log what keys are actually present
+                available_keys = list(data["data"].keys()) if isinstance(data["data"], dict) else "Not a dict"
+                # Check if API version might be invalid
+                error_msg = f"Unexpected response format from Shopify API: Response does not contain 'orders' in data. Available keys: {available_keys}."
+                if api_version and api_version > "2024-10":  # Rough check for future dates
+                    error_msg += f" Note: API version '{api_version}' might be invalid. Shopify API versions are typically in YYYY-MM format and must be released versions."
+                error_msg += f" Full response: {str(data)[:1000]}"
+                raise Exception(error_msg)
             
             orders_data = data["data"]["orders"]
             edges = orders_data.get("edges", [])
