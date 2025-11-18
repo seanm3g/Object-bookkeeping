@@ -29,13 +29,23 @@ Your app now supports:
    - **Start Command**: `gunicorn app:app`
    - **Plan**: Free (or paid for always-on)
 
-4. **Add Environment Variables**:
+4. **Add a PostgreSQL Database** (IMPORTANT - Required for data persistence):
+   - Click "New +" → "PostgreSQL"
+   - Name it (e.g., `shopify-order-db`)
+   - Choose Free tier
+   - Click "Create Database"
+   - Copy the "Internal Database URL"
+
+5. **Add Environment Variables** to your Web Service:
    - `SECRET_KEY`: Generate a random string (use: `python -c "import secrets; print(secrets.token_hex(32))"`)
    - `FLASK_ENV`: `production`
+   - `DATABASE_URL`: Paste the Internal Database URL from step 4
 
-5. **Deploy!** Click "Create Web Service"
+6. **Deploy!** Click "Create Web Service"
 
-6. **Your app will be live at**: `https://your-app-name.onrender.com`
+**⚠️ IMPORTANT**: Without a PostgreSQL database, your accounts and data will be lost on every restart! See [FIX_DATABASE_PERSISTENCE.md](FIX_DATABASE_PERSISTENCE.md) for details.
+
+7. **Your app will be live at**: `https://your-app-name.onrender.com`
 
 ### Option 2: Railway
 
@@ -49,13 +59,21 @@ Your app now supports:
    - Install dependencies from `requirements.txt`
    - Run `gunicorn app:app` (from Procfile)
 
-4. **Add Environment Variables**:
+4. **Add a PostgreSQL Database** (IMPORTANT - Required for data persistence):
+   - Click "New" → "Database" → "Add PostgreSQL"
+   - Railway automatically creates it
+   - Copy the `DATABASE_URL` from the database service's Variables tab
+
+5. **Add Environment Variables** to your Web Service:
    - `SECRET_KEY`: (generate as above)
    - `FLASK_ENV`: `production`
+   - `DATABASE_URL`: Paste the `DATABASE_URL` from the PostgreSQL service
 
-5. **Deploy!** Railway automatically deploys on git push
+6. **Deploy!** Railway automatically deploys on git push
 
-6. **Your app will be live at**: `https://your-app-name.up.railway.app`
+**⚠️ IMPORTANT**: Without a PostgreSQL database, your accounts and data will be lost on every restart! See [FIX_DATABASE_PERSISTENCE.md](FIX_DATABASE_PERSISTENCE.md) for details.
+
+7. **Your app will be live at**: `https://your-app-name.up.railway.app`
 
 ### Option 3: Fly.io
 
@@ -106,13 +124,17 @@ Before deploying, test the authentication locally:
 
 Before going live:
 
+- [ ] **Set up PostgreSQL database** (REQUIRED - see [FIX_DATABASE_PERSISTENCE.md](FIX_DATABASE_PERSISTENCE.md))
+- [ ] Set `DATABASE_URL` environment variable to your PostgreSQL connection string
 - [ ] Set a strong `SECRET_KEY` (use `secrets.token_hex(32)`)
 - [ ] Set `FLASK_ENV=production`
-- [ ] Use PostgreSQL (if on a platform that supports it)
 - [ ] Enable HTTPS (most platforms do this automatically)
 - [ ] Test user registration and login
+- [ ] **Test that accounts persist after restart** (register, restart app, try to log in)
 - [ ] Test that users can't see each other's data
 - [ ] Set up database backups (if using PostgreSQL)
+
+**⚠️ CRITICAL**: If you skip setting up PostgreSQL, all user accounts and data will be lost every time the server restarts or redeploys!
 
 ## Database Migration
 

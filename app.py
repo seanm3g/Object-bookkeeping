@@ -1271,7 +1271,10 @@ def google_auth():
         return jsonify({'success': False, 'error': 'Google OAuth not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.'}), 400
     
     # OAuth scopes
-    SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+    SCOPES = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/userinfo.email'
+    ]
     
     # Create OAuth flow
     flow = Flow.from_client_config(
@@ -1328,7 +1331,10 @@ def google_auth_callback():
     
     try:
         # Create OAuth flow
-        SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
+        SCOPES = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/userinfo.email'
+        ]
         redirect_uri = request.url_root.rstrip('/') + '/auth/google/callback'
         
         flow = Flow.from_client_config(
@@ -1352,10 +1358,16 @@ def google_auth_callback():
         # Get credentials
         creds = flow.credentials
         
-        # Get user info
-        service = build('oauth2', 'v2', credentials=creds)
-        user_info = service.userinfo().get().execute()
-        user_email = user_info.get('email', '')
+        # Get user info (optional - for display purposes)
+        user_email = ''
+        try:
+            service = build('oauth2', 'v2', credentials=creds)
+            user_info = service.userinfo().get().execute()
+            user_email = user_info.get('email', '')
+        except Exception as e:
+            # If we can't get email, continue anyway - it's just for display
+            print(f"Warning: Could not fetch user email: {e}")
+            user_email = ''
         
         # Save token to database
         db_session = get_db_session()
