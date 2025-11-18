@@ -1,0 +1,85 @@
+{
+  "shopify": {
+    "shop_domain": "",
+    "access_token": "",
+    "api_version": "2025-10"
+  },
+  "google_sheets": {
+    "enabled": false,
+    "credentials_file": "",
+    "spreadsheet_id": ""
+  },
+  "product_rules": [
+    {
+      "id": 1,
+      "keywords": ["consignment", "consign"],
+      "description": "Consignment items",
+      "components": [
+        {
+          "type": "consignment",
+          "label": "",
+          "calc_type": "percentage",
+          "value": 50.0,
+          "order": 1
+        },
+        {
+          "type": "taxes",
+          "label": "",
+          "calc_type": "percentage",
+          "value": 10.0,
+          "order": 2
+        },
+        {
+          "type": "financing",
+          "label": "",
+          "calc_type": "percentage",
+          "value": 10.0,
+          "order": 3
+        },
+        {
+          "type": "shipping",
+          "label": "",
+          "calc_type": "flat",
+          "value": 0.0,
+          "order": 4
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "keywords": ["standard", "regular"],
+      "description": "Standard products",
+      "components": [
+        {
+          "type": "taxes",
+          "label": "",
+          "calc_type": "percentage",
+          "value": 15.0,
+          "order": 1
+        },
+        {
+          "type": "financing",
+          "label": "",
+          "calc_type": "percentage",
+          "value": 5.0,
+          "order": 2
+        },
+        {
+          "type": "consignment",
+          "label": "",
+          "calc_type": "flat",
+          "value": 0.0,
+          "order": 3
+        },
+        {
+          "type": "shipping",
+          "label": "",
+          "calc_type": "flat",
+          "value": 0.0,
+          "order": 4
+        }
+      ]
+    }
+  ]
+}
+
