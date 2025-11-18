@@ -856,11 +856,28 @@ HTML_TEMPLATE = """
                     if (b.component_breakdown && b.component_breakdown.length > 0) {
                         breakdownHtml = '<br>Breakdown: ' + b.component_breakdown.join(' | ') + '<br>';
                     }
+                    let metadataHtml = '';
+                    if (b.vendor || b.product_type || b.tags || b.collections) {
+                        metadataHtml = '<br><small style="color: #666;">';
+                        if (b.vendor) metadataHtml += `Vendor: ${b.vendor} | `;
+                        if (b.product_type) metadataHtml += `Type: ${b.product_type} | `;
+                        if (b.tags) metadataHtml += `Tags: ${b.tags} | `;
+                        if (b.collections) metadataHtml += `Collections: ${b.collections}`;
+                        metadataHtml = metadataHtml.replace(/\s*\|\s*$/, ''); // Remove trailing |
+                        metadataHtml += '</small>';
+                    }
+                    let shopifyTaxHtml = '';
+                    if (b.shopify_tax_breakdown && b.shopify_tax_breakdown.length > 0) {
+                        const taxBreakdown = Array.isArray(b.shopify_tax_breakdown) 
+                            ? b.shopify_tax_breakdown.join(' | ') 
+                            : b.shopify_tax_breakdown;
+                        shopifyTaxHtml = `<br><small style="color: #0066cc;"><strong>Shopify Taxes:</strong> ${taxBreakdown}</small>`;
+                    }
                     html += `<div class="order-item">
                         <strong>Order #${b.order_number}</strong> - ${b.date}<br>
                         Customer: ${b.customer}<br>
-                        Products: ${b.products}<br>
-                        Total: $${b.order_total.toFixed(2)} | Cost: $${(b.total_cost || 0).toFixed(2)}<br>
+                        Products: ${b.products}${metadataHtml}<br>
+                        Total: $${b.order_total.toFixed(2)} | Cost: $${(b.total_cost || 0).toFixed(2)}${shopifyTaxHtml}<br>
                         Revenue: $${b.revenue.toFixed(2)} | Investor: $${b.investor.toFixed(2)} | State Taxes: $${b.state_taxes.toFixed(2)} | Federal Taxes: $${b.federal_taxes.toFixed(2)} | Consigner: $${b.consigner.toFixed(2)}${breakdownHtml}
                         Rule: ${b.matched_rules}
                     </div>`;

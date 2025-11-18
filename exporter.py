@@ -77,6 +77,7 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
     # Collect all unique consigner and investor labels
     all_consigner_labels = set()
     all_investor_labels = set()
+    all_tax_types = set()  # Collect all unique tax types from Shopify
     breakdowns_with_labels = []
     
     for breakdown in breakdowns:
@@ -84,6 +85,14 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
         consigners, investors = parse_component_labels(component_breakdown)
         all_consigner_labels.update(consigners.keys())
         all_investor_labels.update(investors.keys())
+        
+        # Collect tax types from Shopify tax lines
+        tax_lines = breakdown.get("tax_lines", []) or []
+        for tax_line in tax_lines:
+            tax_title = tax_line.get("title", "Tax")
+            if tax_title:
+                all_tax_types.add(tax_title)
+        
         breakdowns_with_labels.append({
             'breakdown': breakdown,
             'consigners': consigners,
@@ -97,6 +106,10 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
         "Date",
         "Customer",
         "Products",
+        "Vendor",
+        "Product Type",
+        "Tags",
+        "Collections",
         "Order Total",
         "Total Cost",
         "Revenue",
@@ -112,8 +125,12 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
     consigner_columns = [f"Consigner - {label}" if label != "Default" else "Consigner" 
                         for label in sorted(all_consigner_labels)]
     
+    # Add columns for each unique Shopify tax type (sorted)
+    shopify_tax_columns = [f"Shopify Tax - {tax_type}" for tax_type in sorted(all_tax_types)]
+    
     # Combine all columns
-    fieldnames = base_columns + investor_columns + consigner_columns + [
+    fieldnames = base_columns + investor_columns + consigner_columns + shopify_tax_columns + [
+        "Shopify Tax Breakdown",
         "Component Breakdown",
         "Matched Rules"
     ]
@@ -123,10 +140,10 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         
-        # Track totals for numeric columns
+        # Track totals for numeric columns (exclude new text columns)
         totals = {col: 0.0 for col in fieldnames if col in [
             "Order Total", "Total Cost", "Revenue", "State Taxes", "Federal Taxes"
-        ] + investor_columns + consigner_columns}
+        ] + investor_columns + consigner_columns + shopify_tax_columns}
         
         # Write data rows
         for item in breakdowns_with_labels:
@@ -144,6 +161,10 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
                 "Date": breakdown.get("date", ""),
                 "Customer": breakdown.get("customer", ""),
                 "Products": breakdown.get("products", ""),
+                "Vendor": breakdown.get("vendor", ""),
+                "Product Type": breakdown.get("product_type", ""),
+                "Tags": breakdown.get("tags", ""),
+                "Collections": breakdown.get("collections", ""),
                 "Order Total": breakdown.get("order_total", 0),
                 "Total Cost": breakdown.get("total_cost", 0),
                 "Revenue": breakdown.get("revenue", 0),
@@ -166,6 +187,24 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
                 amount = consigners.get(label, 0)
                 row[col_name] = amount
                 totals[col_name] = totals.get(col_name, 0) + amount
+            
+            # Add Shopify tax columns
+            tax_lines = breakdown.get("tax_lines", []) or []
+            shopify_tax_breakdown_str = breakdown.get("shopify_tax_breakdown", [])
+            if isinstance(shopify_tax_breakdown_str, list):
+                shopify_tax_breakdown_str = "; ".join(shopify_tax_breakdown_str)
+            row["Shopify Tax Breakdown"] = shopify_tax_breakdown_str or ""
+            
+            for tax_type in sorted(all_tax_types):
+                col_name = f"Shopify Tax - {tax_type}"
+                # Find matching tax line
+                tax_amount = 0
+                for tax_line in tax_lines:
+                    if tax_line.get("title", "") == tax_type:
+                        tax_amount = float(tax_line.get("amount", "0"))
+                        break
+                row[col_name] = tax_amount
+                totals[col_name] = totals.get(col_name, 0) + tax_amount
             
             # Update totals for base numeric columns
             for col in ["Order Total", "Total Cost", "Revenue", "State Taxes", "Federal Taxes"]:
@@ -262,6 +301,10 @@ def _export_to_csv_fallback(breakdowns: List[Dict], output_path: str):
         "Date",
         "Customer",
         "Products",
+        "Vendor",
+        "Product Type",
+        "Tags",
+        "Collections",
         "Order Total",
         "Total Cost",
         "Revenue",
@@ -277,7 +320,7 @@ def _export_to_csv_fallback(breakdowns: List[Dict], output_path: str):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         
-        totals = {col: 0 for col in fieldnames[5:12]}  # Numeric columns
+        totals = {col: 0 for col in fieldnames[9:16]}  # Numeric columns (after text columns)
         
         for breakdown in breakdowns:
             component_breakdown = breakdown.get("component_breakdown", [])
@@ -289,6 +332,10 @@ def _export_to_csv_fallback(breakdowns: List[Dict], output_path: str):
                 "Date": breakdown.get("date", ""),
                 "Customer": breakdown.get("customer", ""),
                 "Products": breakdown.get("products", ""),
+                "Vendor": breakdown.get("vendor", ""),
+                "Product Type": breakdown.get("product_type", ""),
+                "Tags": breakdown.get("tags", ""),
+                "Collections": breakdown.get("collections", ""),
                 "Order Total": breakdown.get("order_total", 0),
                 "Total Cost": breakdown.get("total_cost", 0),
                 "Revenue": breakdown.get("revenue", 0),
@@ -409,6 +456,7 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         # Collect all unique consigner and investor labels (same logic as CSV export)
         all_consigner_labels = set()
         all_investor_labels = set()
+        all_tax_types = set()  # Collect all unique tax types from Shopify
         breakdowns_with_labels = []
         
         for breakdown in breakdowns:
@@ -416,6 +464,14 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             consigners, investors = parse_component_labels(component_breakdown)
             all_consigner_labels.update(consigners.keys())
             all_investor_labels.update(investors.keys())
+            
+            # Collect tax types from Shopify tax lines
+            tax_lines = breakdown.get("tax_lines", []) or []
+            for tax_line in tax_lines:
+                tax_title = tax_line.get("title", "Tax")
+                if tax_title:
+                    all_tax_types.add(tax_title)
+            
             breakdowns_with_labels.append({
                 'breakdown': breakdown,
                 'consigners': consigners,
@@ -429,6 +485,10 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             "Date",
             "Customer",
             "Products",
+            "Vendor",
+            "Product Type",
+            "Tags",
+            "Collections",
             "Order Total",
             "Total Cost",
             "Revenue",
@@ -440,8 +500,10 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                            for label in sorted(all_investor_labels)]
         consigner_columns = [f"Consigner - {label}" if label != "Default" else "Consigner" 
                             for label in sorted(all_consigner_labels)]
+        shopify_tax_columns = [f"Shopify Tax - {tax_type}" for tax_type in sorted(all_tax_types)]
         
-        fieldnames = base_columns + investor_columns + consigner_columns + [
+        fieldnames = base_columns + investor_columns + consigner_columns + shopify_tax_columns + [
+            "Shopify Tax Breakdown",
             "Component Breakdown",
             "Matched Rules"
         ]
@@ -466,7 +528,7 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             
             totals = {col: 0.0 for col in fieldnames if col in [
                 "Order Total", "Total Cost", "Revenue", "State Taxes", "Federal Taxes"
-            ] + investor_columns + consigner_columns}
+            ] + investor_columns + consigner_columns + shopify_tax_columns}
             
             # Filter breakdowns for this month (match by order_id)
             month_order_ids = {b.get('order_id') for b in month_breakdowns}
@@ -490,6 +552,10 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     breakdown.get("date", ""),
                     breakdown.get("customer", ""),
                     breakdown.get("products", ""),
+                    breakdown.get("vendor", ""),
+                    breakdown.get("product_type", ""),
+                    breakdown.get("tags", ""),
+                    breakdown.get("collections", ""),
                     breakdown.get("order_total", 0),
                     breakdown.get("total_cost", 0),
                     breakdown.get("revenue", 0),
@@ -509,6 +575,23 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     row.append(amount)
                     totals[f"Consigner - {label}" if label != "Default" else "Consigner"] += amount
                 
+                # Add Shopify tax columns
+                tax_lines = breakdown.get("tax_lines", []) or []
+                shopify_tax_breakdown_str = breakdown.get("shopify_tax_breakdown", [])
+                if isinstance(shopify_tax_breakdown_str, list):
+                    shopify_tax_breakdown_str = "; ".join(shopify_tax_breakdown_str)
+                
+                for tax_type in sorted(all_tax_types):
+                    # Find matching tax line
+                    tax_amount = 0
+                    for tax_line in tax_lines:
+                        if tax_line.get("title", "") == tax_type:
+                            tax_amount = float(tax_line.get("amount", "0"))
+                            break
+                    row.append(tax_amount)
+                    totals[f"Shopify Tax - {tax_type}"] += tax_amount
+                
+                row.append(shopify_tax_breakdown_str or "")
                 row.append(breakdown_str)
                 row.append(breakdown.get("matched_rules", ""))
                 

@@ -19,25 +19,61 @@ class RuleEngine:
         """
         self.rules = rules
     
-    def find_matching_rule(self, product_description: str) -> Optional[Dict]:
+    def find_matching_rule(self, line_item: Dict) -> Optional[Dict]:
         """
-        Find the first matching rule for a product description.
+        Find the first matching rule for a line item.
         
         Uses first-match logic: returns the first rule whose keywords
-        match the product description.
+        match any of: product title/name, vendor, product type, tags, or collections.
         
         Args:
-            product_description: Product description/title to match
+            line_item: Line item dictionary with product information
         
         Returns:
             Matching rule dictionary or None if no match
         """
-        product_lower = product_description.lower()
+        # Collect all searchable text from the line item
+        searchable_texts = []
         
+        # Product title/name
+        title = line_item.get("name") or line_item.get("title", "")
+        if title:
+            searchable_texts.append(title.lower())
+        
+        # Vendor
+        vendor = line_item.get("vendor", "")
+        if vendor:
+            searchable_texts.append(vendor.lower())
+        
+        # Product type
+        product_type = line_item.get("product_type", "")
+        if product_type:
+            searchable_texts.append(product_type.lower())
+        
+        # Tags (list of strings)
+        tags = line_item.get("tags", [])
+        if tags:
+            for tag in tags:
+                if tag:
+                    searchable_texts.append(tag.lower())
+        
+        # Collections (list of strings)
+        collections = line_item.get("collections", [])
+        if collections:
+            for collection in collections:
+                if collection:
+                    searchable_texts.append(collection.lower())
+        
+        # Combine all searchable text
+        combined_text = " ".join(searchable_texts)
+        
+        # Match against rules
         for rule in self.rules:
             keywords = rule.get("keywords", [])
             for keyword in keywords:
-                if keyword.lower() in product_lower:
+                keyword_lower = keyword.lower()
+                # Check if keyword matches any of the searchable fields
+                if keyword_lower in combined_text:
                     return rule
         
         return None
@@ -79,7 +115,7 @@ class RuleEngine:
         total_cost = float(order.get("total_cost", 0))
         base = max(0, base - total_cost)  # Ensure base doesn't go negative
         
-        # Get product descriptions
+        # Get line items
         line_items = order.get("line_items", [])
         product_descriptions = []
         for item in line_items:
@@ -99,8 +135,8 @@ class RuleEngine:
         # For now, apply first matching rule to entire order
         # (Could be enhanced to calculate per line item)
         rule_applied = None
-        for description in product_descriptions:
-            rule = self.find_matching_rule(description)
+        for line_item in line_items:
+            rule = self.find_matching_rule(line_item)
             if rule and not rule_applied:
                 rule_applied = rule
                 matched_rules.append(rule.get("description", "Unknown rule"))
@@ -265,11 +301,46 @@ class RuleEngine:
         # Format products list
         products_str = ", ".join(product_descriptions)
         
+        # Collect vendor, tags, collections, and product types from all line items
+        all_vendors = set()
+        all_tags = set()
+        all_collections = set()
+        all_product_types = set()
+        
+        for item in line_items:
+            vendor = item.get("vendor", "")
+            if vendor:
+                all_vendors.add(vendor)
+            
+            tags = item.get("tags", [])
+            if tags:
+                all_tags.update(tags)
+            
+            collections = item.get("collections", [])
+            if collections:
+                all_collections.update(collections)
+            
+            product_type = item.get("product_type", "")
+            if product_type:
+                all_product_types.add(product_type)
+        
         # Format component breakdown for display
         component_breakdown = []
         if rule_applied and component_details:
             for comp_detail in component_details:
                 component_breakdown.append(f"{comp_detail['display_name']}: ${comp_detail['amount']:.2f}")
+        
+        # Extract tax lines from order (Shopify's actual tax breakdown)
+        tax_lines = order.get("tax_lines", []) or []
+        shopify_tax_breakdown = []
+        for tax_line in tax_lines:
+            title = tax_line.get("title", "Tax")
+            amount = float(tax_line.get("amount", "0"))
+            rate_display = tax_line.get("rate_display", "")
+            if rate_display:
+                shopify_tax_breakdown.append(f"{title} ({rate_display}): ${amount:.2f}")
+            else:
+                shopify_tax_breakdown.append(f"{title}: ${amount:.2f}")
         
         return {
             "order_id": str(order.get("id", "")),
@@ -277,6 +348,10 @@ class RuleEngine:
             "date": order.get("created_at", "")[:10],  # Just the date part
             "customer": customer_name,
             "products": products_str,
+            "vendor": ", ".join(sorted(all_vendors)) if all_vendors else "",
+            "product_type": ", ".join(sorted(all_product_types)) if all_product_types else "",
+            "tags": ", ".join(sorted(all_tags)) if all_tags else "",
+            "collections": ", ".join(sorted(all_collections)) if all_collections else "",
             "order_total": float(order.get("total_price", 0)),
             "total_cost": round(total_cost, 2),
             "base_amount": base,
@@ -286,6 +361,8 @@ class RuleEngine:
             "federal_taxes": round(total_federal_taxes, 2),
             "consigner": round(total_consigner, 2),
             "component_breakdown": component_breakdown,  # Detailed breakdown with labels
+            "shopify_tax_breakdown": shopify_tax_breakdown,  # Shopify's actual tax breakdown
+            "tax_lines": tax_lines,  # Raw tax line data
             "matched_rules": ", ".join(matched_rules) if matched_rules else "No match"
         }
     

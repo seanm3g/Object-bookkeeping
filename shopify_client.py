@@ -28,11 +28,11 @@ def generate_dummy_orders(start_date: str, end_date: str, count: int = 10) -> Li
     date_range = (end - start).days
     
     sample_products = [
-        {"title": "Consignment Art Piece", "description": "Beautiful consignment artwork", "price": 150.00},
-        {"title": "Standard Furniture", "description": "Regular furniture item", "price": 299.99},
-        {"title": "Consignment Vintage Lamp", "description": "Vintage consignment lighting", "price": 89.50},
-        {"title": "Premium Sofa", "description": "Standard premium furniture", "price": 599.99},
-        {"title": "Art Consignment Collection", "description": "Consignment art collection", "price": 250.00},
+        {"title": "Consignment Art Piece", "description": "Beautiful consignment artwork", "price": 150.00, "vendor": "Monsoon Chocolate", "product_type": "Art", "tags": ["Consignment", "Art"], "collections": ["Art Collection"]},
+        {"title": "Standard Furniture", "description": "Regular furniture item", "price": 299.99, "vendor": "Furniture Co", "product_type": "Furniture", "tags": ["Inventory"], "collections": ["Furniture"]},
+        {"title": "Consignment Vintage Lamp", "description": "Vintage consignment lighting", "price": 89.50, "vendor": "Vintage Store", "product_type": "Lighting", "tags": ["Consignment", "Vintage"], "collections": ["Vintage Collection"]},
+        {"title": "Premium Sofa", "description": "Standard premium furniture", "price": 599.99, "vendor": "Furniture Co", "product_type": "Furniture", "tags": ["Premium"], "collections": ["Furniture"]},
+        {"title": "Art Consignment Collection", "description": "Consignment art collection", "price": 250.00, "vendor": "Monsoon Chocolate", "product_type": "Art", "tags": ["Consignment", "Art"], "collections": ["Art Collection"]},
     ]
     
     for i in range(count):
@@ -68,7 +68,11 @@ def generate_dummy_orders(start_date: str, end_date: str, count: int = 10) -> Li
                     "quantity": 1,
                     "price": str(item["price"]),
                     "name": item["title"],
-                    "cost": str(item["price"] * 0.5)  # Dummy cost: 50% of price
+                    "cost": str(item["price"] * 0.5),  # Dummy cost: 50% of price
+                    "vendor": item.get("vendor", ""),
+                    "product_type": item.get("product_type", ""),
+                    "tags": item.get("tags", []),
+                    "collections": item.get("collections", [])
                 }
                 for j, item in enumerate(line_items)
             ],
@@ -117,13 +121,31 @@ def transform_order(node: Dict) -> Dict:
             except (ValueError, TypeError):
                 pass
         
+        # Extract product metadata
+        product = item_node.get("product", {}) or {}
+        vendor = product.get("vendor", "")
+        product_type = product.get("productType", "")
+        tags = product.get("tags", []) or []
+        
+        # Extract collections
+        collections = []
+        collections_edges = product.get("collections", {}).get("edges", [])
+        for coll_edge in collections_edges:
+            coll_title = coll_edge.get("node", {}).get("title", "")
+            if coll_title:
+                collections.append(coll_title)
+        
         line_items.append({
             "id": item_node.get("id", ""),
             "title": item_node.get("title", ""),
             "name": item_node.get("name", ""),
             "quantity": quantity,
             "price": price_data.get("amount", "0"),
-            "cost": str(item_cost) if item_cost > 0 else "0"
+            "cost": str(item_cost) if item_cost > 0 else "0",
+            "vendor": vendor,
+            "product_type": product_type,
+            "tags": tags,
+            "collections": collections
         })
     
     # Extract customer info
@@ -133,6 +155,31 @@ def transform_order(node: Dict) -> Dict:
     subtotal = node.get("subtotalPriceSet", {}).get("shopMoney", {}).get("amount", "0")
     tax = node.get("totalTaxSet", {}).get("shopMoney", {}).get("amount", "0")
     total = node.get("totalPriceSet", {}).get("shopMoney", {}).get("amount", "0")
+    
+    # Extract tax lines (detailed tax breakdown)
+    tax_lines = []
+    tax_lines_data = node.get("taxLines", []) or []
+    for tax_line in tax_lines_data:
+        tax_amount = tax_line.get("priceSet", {}).get("shopMoney", {}).get("amount", "0")
+        tax_title = tax_line.get("title", "Tax")
+        tax_rate = tax_line.get("rate", 0)
+        tax_rate_percentage = tax_line.get("ratePercentage", 0)
+        
+        # Use ratePercentage if available, otherwise calculate from rate
+        if tax_rate_percentage:
+            rate_display = f"{tax_rate_percentage}%"
+        elif tax_rate:
+            rate_display = f"{float(tax_rate) * 100:.2f}%"
+        else:
+            rate_display = ""
+        
+        tax_lines.append({
+            "title": tax_title,
+            "amount": tax_amount,
+            "rate": str(tax_rate) if tax_rate else "0",
+            "rate_percentage": str(tax_rate_percentage) if tax_rate_percentage else "",
+            "rate_display": rate_display
+        })
     
     return {
         "id": node.get("id", ""),
@@ -146,6 +193,7 @@ def transform_order(node: Dict) -> Dict:
         "line_items": line_items,
         "subtotal_price": subtotal,
         "total_tax": tax,
+        "tax_lines": tax_lines,  # Detailed tax breakdown
         "total_price": total,
         "total_cost": str(total_cost),
         "currency": node.get("currencyCode", "USD")
@@ -220,6 +268,19 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                       }
                     }
                   }
+                  product {
+                    id
+                    vendor
+                    productType
+                    tags
+                    collections(first: 10) {
+                      edges {
+                        node {
+                          title
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -234,6 +295,17 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 amount
                 currencyCode
               }
+            }
+            taxLines {
+              title
+              priceSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              rate
+              ratePercentage
             }
             totalPriceSet {
               shopMoney {
@@ -282,6 +354,19 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                   variant {
                     id
                   }
+                  product {
+                    id
+                    vendor
+                    productType
+                    tags
+                    collections(first: 10) {
+                      edges {
+                        node {
+                          title
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -296,6 +381,17 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                 amount
                 currencyCode
               }
+            }
+            taxLines {
+              title
+              priceSet {
+                shopMoney {
+                  amount
+                  currencyCode
+                }
+              }
+              rate
+              ratePercentage
             }
             totalPriceSet {
               shopMoney {
