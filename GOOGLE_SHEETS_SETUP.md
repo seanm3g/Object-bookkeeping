@@ -55,12 +55,85 @@ You have two options for providing the OAuth credentials:
 
 #### Option A: Environment Variables (Recommended for Production)
 
-Set these environment variables on your server:
+Set these environment variables on your server. The app will automatically use them if set, and fall back to `config.json` if not found.
+
+**📖 For detailed step-by-step instructions for your specific hosting platform, see [SET_ENV_VARS.md](SET_ENV_VARS.md)**
+
+**For Local Development:**
 
 ```bash
 export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
 ```
+
+**For Production Hosting Platforms:**
+
+**Render:**
+1. Go to your service dashboard
+2. Click "Environment" in the left sidebar
+3. Click "Add Environment Variable"
+4. Add:
+   - Key: `GOOGLE_CLIENT_ID`, Value: `your-client-id.apps.googleusercontent.com`
+   - Key: `GOOGLE_CLIENT_SECRET`, Value: `your-client-secret`
+5. Click "Save Changes" (service will redeploy automatically)
+
+**Railway:**
+1. Go to your project dashboard
+2. Click on your service
+3. Go to "Variables" tab
+4. Click "New Variable"
+5. Add:
+   - `GOOGLE_CLIENT_ID` = `your-client-id.apps.googleusercontent.com`
+   - `GOOGLE_CLIENT_SECRET` = `your-client-secret`
+6. Variables are saved automatically
+
+**Heroku:**
+```bash
+heroku config:set GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+heroku config:set GOOGLE_CLIENT_SECRET="your-client-secret"
+```
+
+Or via dashboard:
+1. Go to your app settings
+2. Click "Reveal Config Vars"
+3. Add the two variables
+
+**Fly.io:**
+```bash
+fly secrets set GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+fly secrets set GOOGLE_CLIENT_SECRET="your-client-secret"
+```
+
+**DigitalOcean App Platform:**
+1. Go to your app settings
+2. Navigate to "App-Level Environment Variables"
+3. Add the two variables
+4. Click "Save"
+
+**VPS/Server (systemd service):**
+Create/edit `/etc/systemd/system/your-app.service`:
+```ini
+[Service]
+Environment="GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com"
+Environment="GOOGLE_CLIENT_SECRET=your-client-secret"
+```
+
+**Docker:**
+Add to your `docker-compose.yml`:
+```yaml
+environment:
+  - GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+  - GOOGLE_CLIENT_SECRET=your-client-secret
+```
+
+Or use `.env` file:
+```bash
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+```
+
+**Verification:**
+After setting environment variables, restart your app and check that the "Sign in with Google" button works. The app will use environment variables if available, otherwise it falls back to `config.json`.
 
 #### Option B: Config File (For Development)
 
