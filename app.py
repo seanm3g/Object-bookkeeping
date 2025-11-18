@@ -52,11 +52,20 @@ login_manager.login_message = 'Please log in to access this page.'
 app.register_blueprint(auth_bp)
 
 # Initialize database
+# Note: We catch exceptions here so the app can start even if database is unavailable
+# The app will show errors when trying to use database features
 try:
-    init_db()
+    engine = init_db()
+    # Store engine globally for reuse (optional optimization)
+    app.config['db_engine'] = engine
 except Exception as e:
     print(f"CRITICAL: Database initialization failed: {e}")
     print("The app will continue but data may not persist. Check your DATABASE_URL environment variable.")
+    print("If deploying to Render, make sure you:")
+    print("  1. Created a PostgreSQL database")
+    print("  2. Set DATABASE_URL environment variable in your web service")
+    print("  3. Used the 'Internal Database URL' from your PostgreSQL service")
+    app.config['db_engine'] = None
 
 CONFIG_PATH = "config.json"  # Fallback for migration
 
@@ -1018,6 +1027,19 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
+
+
+@app.route('/health')
+def health():
+    """Health check endpoint for Render and other hosting platforms."""
+    try:
+        # Test database connection
+        session = get_db_session()
+        session.close()
+        return jsonify({'status': 'ok', 'database': 'connected'}), 200
+    except Exception as e:
+        # App is running but database might not be connected
+        return jsonify({'status': 'degraded', 'database': 'disconnected', 'error': str(e)}), 200
 
 
 @app.route('/')
