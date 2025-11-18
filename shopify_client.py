@@ -205,9 +205,7 @@ def transform_order(node: Dict) -> Dict:
             "target_type": app.get("targetType", ""),
             "target_selection": app.get("targetSelection", ""),
             "allocation_method": app.get("allocationMethod", ""),
-            "value": discount_value,
-            "title": app.get("title", ""),
-            "description": app.get("description", "")
+            "value": discount_value
         })
     
     return {
@@ -360,8 +358,6 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                       percentage
                     }
                   }
-                  title
-                  description
                 }
               }
             }
@@ -466,8 +462,6 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                       percentage
                     }
                   }
-                  title
-                  description
                 }
               }
             }
