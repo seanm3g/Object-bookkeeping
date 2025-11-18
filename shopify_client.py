@@ -245,7 +245,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
               firstName
               lastName
             }
-            lineItems(first: 250) {
+            lineItems(first: 50) {
               edges {
                 node {
                   id
@@ -273,7 +273,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                     vendor
                     productType
                     tags
-                    collections(first: 10) {
+                    collections(first: 5) {
                       edges {
                         node {
                           title
@@ -338,7 +338,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
               firstName
               lastName
             }
-            lineItems(first: 250) {
+            lineItems(first: 50) {
               edges {
                 node {
                   id
@@ -359,7 +359,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                     vendor
                     productType
                     tags
-                    collections(first: 10) {
+                    collections(first: 5) {
                       edges {
                         node {
                           title
@@ -413,6 +413,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
     all_orders = []
     cursor = None
     has_next_page = True
+    page_size = 50  # Start with 50, will be reduced if we hit cost limits
     
     # Build query string for date filtering
     # Format: created_at:>=2024-01-01 AND created_at:<2024-02-01
@@ -427,7 +428,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
     
     while has_next_page:
         variables = {
-            "first": 250,  # Max 250 per page
+            "first": page_size,  # Use dynamic page size (reduced if we hit cost limits)
             "query": query_string
         }
         if cursor:
@@ -461,8 +462,32 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
             if "errors" in data:
                 error_messages = []
                 cost_access_error = False
+                should_retry_with_smaller_page = False
                 for err in data["errors"]:
                     msg = err.get("message", str(err))
+                    extensions = err.get("extensions", {})
+                    error_code = extensions.get("code", "")
+                    
+                    # Check for MAX_COST_EXCEEDED error
+                    if error_code == "MAX_COST_EXCEEDED":
+                        cost = extensions.get("cost", 0)
+                        max_cost = extensions.get("maxCost", 1000)
+                        # Try reducing page size and retry
+                        if page_size > 10:
+                            # Reduce page size by half and retry
+                            page_size = max(10, page_size // 2)
+                            print(f"Query cost ({cost}) exceeded limit ({max_cost}). Reducing page size to {page_size} and retrying...")
+                            # Reset pagination to retry with smaller page size
+                            cursor = None
+                            has_next_page = True
+                            all_orders = []
+                            should_retry_with_smaller_page = True
+                            break  # Break out of error loop to retry
+                        else:
+                            # Already at minimum, can't reduce further
+                            error_messages.append(f"Query cost ({cost}) exceeds limit ({max_cost}) even with minimum page size. The date range may be too large. Try a smaller date range or use bulk operations.")
+                        continue
+                    
                     # Check if error is about variant or products access
                     if "read_products" in msg or "variant field" in msg.lower():
                         # Need read_products scope - this is required for variant access
@@ -474,8 +499,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                         # Don't add to error messages - we'll handle this gracefully
                         continue
                     # Check for specific error codes
-                    extensions = err.get("extensions", {})
-                    if extensions.get("code") == "ACCESS_DENIED":
+                    if error_code == "ACCESS_DENIED":
                         # Check if it's specifically about orders or something else
                         if "order" in msg.lower():
                             error_messages.append("Access denied: Your access token doesn't have permission to access orders. Please check your API scopes.")
@@ -483,6 +507,10 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
                             error_messages.append(f"Access denied: {msg}")
                     else:
                         error_messages.append(msg)
+                
+                # If we need to retry with smaller page size, continue the while loop
+                if should_retry_with_smaller_page:
+                    continue
                 
                 # If we have non-cost-related errors, raise them
                 if error_messages:
