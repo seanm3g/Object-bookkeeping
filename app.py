@@ -886,7 +886,6 @@ HTML_TEMPLATE = """
                         Customer: ${b.customer}<br>
                         Products: ${b.products}${metadataHtml}<br>
                         Total: $${b.order_total.toFixed(2)} | Cost: $${(b.total_cost || 0).toFixed(2)}${shopifyTaxHtml}${financialBreakdownHtml}
-                        Rule: ${b.matched_rules}
                     </div>`;
                 });
                 html += '</div>';
