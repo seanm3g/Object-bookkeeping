@@ -208,11 +208,15 @@ def transform_order(node: Dict) -> Dict:
             "value": discount_value
         })
     
+    # Extract financial status (for refund detection)
+    financial_status = node.get("financialStatus", "")
+    
     return {
         "id": node.get("id", ""),
         "order_number": order_number,
         "created_at": node.get("createdAt", ""),
         "email": node.get("email", ""),
+        "financial_status": financial_status,  # For refund detection
         "customer": {
             "first_name": customer.get("firstName", ""),
             "last_name": customer.get("lastName", "")
@@ -271,6 +275,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
             name
             createdAt
             email
+            financialStatus
             customer {
               firstName
               lastName
@@ -382,6 +387,7 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
             name
             createdAt
             email
+            financialStatus
             customer {
               firstName
               lastName

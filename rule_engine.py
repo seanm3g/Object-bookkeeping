@@ -106,18 +106,45 @@ class RuleEngine:
                 "matched_rules": List[str]
             }
         """
-        # Get base amount for calculations
-        if base_amount == "subtotal":
-            base = float(order.get("subtotal_price", 0))
+        # Get line items first (needed for both price calculation and product descriptions)
+        line_items = order.get("line_items", [])
+        
+        # Calculate original sale price from line items (before discounts)
+        original_sale_price = 0.0
+        for item in line_items:
+            price = float(item.get("price", "0"))
+            quantity = int(item.get("quantity", 1))
+            original_sale_price += price * quantity
+        
+        # Calculate total discount amount
+        # This handles both percentage and fixed amount discounts
+        total_discount_amount = 0.0
+        discount_applications = order.get("discount_applications", []) or []
+        
+        if discount_applications:
+            # Calculate discount from discount_applications
+            for discount_app in discount_applications:
+                value_data = discount_app.get("value", {})
+                if value_data.get("type") == "percentage":
+                    # Percentage discount - apply to original sale price
+                    percentage = float(value_data.get("percentage", 0))
+                    discount_amount = original_sale_price * (percentage / 100)
+                    total_discount_amount += discount_amount
+                elif value_data.get("type") == "money":
+                    # Fixed amount discount - use amount directly
+                    discount_amount = float(value_data.get("amount", "0"))
+                    total_discount_amount += discount_amount
         else:
-            base = float(order.get("total_price", 0))
+            # Fallback: use total_discount if discount_applications not available
+            total_discount_amount = float(order.get("total_discount", "0") or "0")
+        
+        # Apply discounts BEFORE allocation and taxes
+        # Subtract discounts from original sale price to get the discounted amount
+        base = max(0, original_sale_price - total_discount_amount)
         
         # Subtract total cost from base amount before applying rules
         total_cost = float(order.get("total_cost", 0))
         base = max(0, base - total_cost)  # Ensure base doesn't go negative
-        
-        # Get line items
-        line_items = order.get("line_items", [])
         product_descriptions = []
         for item in line_items:
             description = item.get("name") or item.get("title", "")
@@ -341,6 +368,8 @@ class RuleEngine:
         """
         Process a list of orders and calculate breakdowns.
         
+        Filters out refunded orders before processing.
+        
         Args:
             orders: List of order dictionaries
             base_amount: Which amount to use as base ("subtotal" or "total")
@@ -350,6 +379,11 @@ class RuleEngine:
         """
         breakdowns = []
         for order in orders:
+            # Skip refunded orders
+            financial_status = order.get("financial_status", "").lower()
+            if financial_status in ["refunded", "partially_refunded"]:
+                continue  # Skip this order - it's a refund
+            
             breakdown = self.calculate_order_breakdown(order, base_amount)
             breakdowns.append(breakdown)
         return breakdowns
