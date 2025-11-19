@@ -349,6 +349,88 @@ HTML_TEMPLATE = """
         .nav-links .username {
             color: #ccc;
         }
+        .dark-mode-toggle {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s;
+        }
+        .dark-mode-toggle:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        /* Dark mode styles */
+        body.dark-mode {
+            background: #1a1a1a;
+            color: #e0e0e0;
+        }
+        body.dark-mode .container {
+            background: #2d2d2d;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        body.dark-mode h1 {
+            color: #e0e0e0;
+        }
+        body.dark-mode h2 {
+            color: #d0d0d0;
+            border-bottom-color: #444;
+        }
+        body.dark-mode label {
+            color: #d0d0d0;
+        }
+        body.dark-mode input[type="text"], 
+        body.dark-mode input[type="password"], 
+        body.dark-mode input[type="date"] {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #e0e0e0;
+        }
+        body.dark-mode .rules-table th {
+            background: #3a3a3a;
+            color: #e0e0e0;
+        }
+        body.dark-mode .rules-table td {
+            border-bottom-color: #444;
+            color: #e0e0e0;
+        }
+        body.dark-mode .results {
+            background: #3a3a3a;
+        }
+        body.dark-mode .order-item {
+            background: #3a3a3a;
+            border-left-color: #007AFF;
+        }
+        body.dark-mode .rule-form {
+            background: #3a3a3a;
+        }
+        body.dark-mode .component-item {
+            background: #2d2d2d;
+            border-color: #555;
+        }
+        body.dark-mode .component-item select,
+        body.dark-mode .component-item input {
+            background: #3a3a3a;
+            border-color: #555;
+            color: #e0e0e0;
+        }
+        body.dark-mode .success {
+            background: #1e4620;
+            color: #90ee90;
+        }
+        body.dark-mode .error {
+            background: #4a1e1e;
+            color: #ff6b6b;
+        }
+        body.dark-mode small {
+            color: #aaa;
+        }
+        body.dark-mode em {
+            color: #888;
+        }
     </style>
 </head>
 <body>
@@ -356,6 +438,7 @@ HTML_TEMPLATE = """
         <h1>Shopify Order Categorization</h1>
         <div class="nav-links">
             <span class="username">Logged in as: {{ current_user.username }}</span>
+            <button class="dark-mode-toggle" onclick="toggleDarkMode()" id="darkModeToggle">🌙 Dark Mode</button>
             {% if current_user.is_admin %}
             <a href="/admin">Admin Panel</a>
             {% endif %}
@@ -510,6 +593,31 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
+        // Dark mode functionality
+        function initDarkMode() {
+            const darkMode = localStorage.getItem('darkMode') === 'true';
+            if (darkMode) {
+                document.body.classList.add('dark-mode');
+                updateDarkModeButton(true);
+            }
+        }
+        
+        function toggleDarkMode() {
+            const isDark = document.body.classList.toggle('dark-mode');
+            localStorage.setItem('darkMode', isDark);
+            updateDarkModeButton(isDark);
+        }
+        
+        function updateDarkModeButton(isDark) {
+            const button = document.getElementById('darkModeToggle');
+            if (button) {
+                button.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+            }
+        }
+        
+        // Initialize dark mode on page load
+        initDarkMode();
+        
         let ordersData = [];  // Unmatched orders for display
         let allOrdersData = [];  // All orders for export
         
