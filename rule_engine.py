@@ -102,6 +102,7 @@ class RuleEngine:
                 "state_taxes": float,
                 "federal_taxes": float,
                 "consigner": float,
+                "vendor": float,
                 "matched_rules": List[str]
             }
         """
@@ -130,6 +131,7 @@ class RuleEngine:
         total_state_taxes = 0.0
         total_federal_taxes = 0.0
         total_consigner = 0.0
+        total_vendor = 0.0
         component_details = []  # Track all component details with labels
         
         # For now, apply first matching rule to entire order
@@ -147,48 +149,18 @@ class RuleEngine:
         
         if rule_applied:
             # Get components and sort by order
-            components = rule_applied.get("components", [])
+            # Filter out tax components - taxes are calculated from Shopify data after all deductions
+            tax_types = {"state_taxes", "federal_taxes"}
+            all_components = rule_applied.get("components", [])
+            components = [c for c in all_components if c.get("type", "") not in tax_types]
             # Sort by order field
             components = sorted(components, key=lambda x: x.get("order", 999))
-            
-            # Separate components into: pre-tax, tax, and post-tax
-            # Taxes (state_taxes, federal_taxes) are calculated from the same base simultaneously
-            tax_types = {"state_taxes", "federal_taxes"}
-            pre_tax_components = []
-            tax_components = []
-            post_tax_components = []
-            
-            # Find the first tax component to determine where to split
-            first_tax_index = None
-            for i, comp in enumerate(components):
-                comp_type = comp.get("type", "")
-                if comp_type in tax_types and first_tax_index is None:
-                    first_tax_index = i
-            
-            # Split components
-            if first_tax_index is not None:
-                pre_tax_components = components[:first_tax_index]
-                # Collect all consecutive tax components
-                tax_start = first_tax_index
-                tax_end = first_tax_index
-                for i in range(first_tax_index, len(components)):
-                    if components[i].get("type", "") in tax_types:
-                        tax_end = i + 1
-                    else:
-                        break
-                tax_components = components[tax_start:tax_end]
-                post_tax_components = components[tax_end:]
-            else:
-                # No taxes, apply all sequentially
-                pre_tax_components = components
-                tax_components = []
-                post_tax_components = []
             
             # Track component details for display
             component_details = []
             
-            # Step 1: Apply pre-tax components sequentially
-            for component in pre_tax_components:
+            # Apply all components sequentially (no tax components)
+            for component in components:
                 comp_type = component.get("type", "")
                 comp_label = component.get("label", "").strip()
                 if comp_type == "revenue":
@@ -219,71 +191,69 @@ class RuleEngine:
                     total_investor += amount
                 elif comp_type == "consigner":
                     total_consigner += amount
+                elif comp_type == "vendor":
+                    total_vendor += amount
             
-            # Step 2: Calculate all taxes from the same base (remaining after pre-tax components)
-            tax_base = remaining_amount
-            for component in tax_components:
-                comp_type = component.get("type", "")
-                comp_label = component.get("label", "").strip()
-                calc_type = component.get("calc_type", "percentage")
-                value = float(component.get("value", 0))
-                
-                if calc_type == "flat":
-                    amount = value
-                else:  # percentage
-                    # All taxes calculated from the same base (tax_base)
-                    amount = tax_base * (value / 100)
-                
-                remaining_amount -= amount
-                
-                # Store and assign
-                display_name = comp_type.replace("_", " ").title()
-                if comp_label:
-                    display_name = f"{display_name} - {comp_label}"
-                component_details.append({
-                    "type": comp_type,
-                    "label": comp_label,
-                    "display_name": display_name,
-                    "amount": amount
-                })
-                
-                if comp_type == "state_taxes":
-                    total_state_taxes += amount
-                elif comp_type == "federal_taxes":
-                    total_federal_taxes += amount
+            # Calculate taxes from Shopify tax data after all other deductions
+            # Apply tax rates from Shopify to the remaining amount
+            tax_lines = order.get("tax_lines", []) or []
             
-            # Step 3: Apply post-tax components sequentially
-            for component in post_tax_components:
-                comp_type = component.get("type", "")
-                comp_label = component.get("label", "").strip()
-                if comp_type == "revenue":
-                    continue
+            if tax_lines and remaining_amount > 0:
+                # Calculate taxes on the remaining amount using Shopify tax rates
+                # Use first tax line as state, second as federal (if available)
+                for i, tax_line in enumerate(tax_lines):
+                    tax_rate_percentage = tax_line.get("rate_percentage")
+                    tax_rate = tax_line.get("rate", 0)
                     
-                calc_type = component.get("calc_type", "percentage")
-                value = float(component.get("value", 0))
-                
-                if calc_type == "flat":
-                    amount = value
-                    remaining_amount -= amount
-                else:  # percentage
-                    amount = remaining_amount * (value / 100)
-                    remaining_amount -= amount
-                
-                # Store and assign
-                display_name = comp_type.replace("_", " ").title()
-                if comp_label:
-                    display_name = f"{display_name} - {comp_label}"
-                component_details.append({
-                    "type": comp_type,
-                    "label": comp_label,
-                    "display_name": display_name,
-                    "amount": amount
-                })
-                
-                if comp_type == "investor":
-                    total_investor += amount
-                elif comp_type == "consigner":
-                    total_consigner += amount
+                    # Calculate tax amount on remaining amount
+                    if tax_rate_percentage:
+                        # Use percentage directly
+                        rate = float(tax_rate_percentage)
+                        tax_amount = remaining_amount * (rate / 100)
+                    elif tax_rate:
+                        # Convert rate to percentage (rate is typically 0.08 for 8%)
+                        rate = float(tax_rate) * 100
+                        tax_amount = remaining_amount * float(tax_rate)
+                    else:
+                        # Fallback: use the amount from tax_line proportionally
+                        tax_line_amount = float(tax_line.get("amount", "0"))
+                        order_total = float(order.get("total_price", 0))
+                        if order_total > 0:
+                            tax_rate_from_amount = tax_line_amount / order_total
+                            tax_amount = remaining_amount * tax_rate_from_amount
+                        else:
+                            continue
+                    
+                    remaining_amount -= tax_amount
+                    
+                    # Assign to state or federal based on position
+                    if i == 0:
+                        # First tax line = state taxes
+                        total_state_taxes = tax_amount
+                        component_details.append({
+                            "type": "state_taxes",
+                            "label": "",
+                            "display_name": "State Taxes",
+                            "amount": tax_amount
+                        })
+                    elif i == 1:
+                        # Second tax line = federal taxes
+                        total_federal_taxes = tax_amount
+                        component_details.append({
+                            "type": "federal_taxes",
+                            "label": "",
+                            "display_name": "Federal Taxes",
+                            "amount": tax_amount
+                        })
+                    else:
+                        # Additional tax lines - add to state for now
+                        total_state_taxes += tax_amount
+                        component_details.append({
+                            "type": "state_taxes",
+                            "label": "",
+                            "display_name": f"Additional Tax ({tax_line.get('title', 'Tax')})",
+                            "amount": tax_amount
+                        })
             
             # Revenue is automatically calculated as whatever is left over
             total_revenue = max(0, remaining_amount)  # Ensure non-negative
@@ -360,6 +330,7 @@ class RuleEngine:
             "state_taxes": round(total_state_taxes, 2),
             "federal_taxes": round(total_federal_taxes, 2),
             "consigner": round(total_consigner, 2),
+            "vendor": round(total_vendor, 2),
             "component_breakdown": component_breakdown,  # Detailed breakdown with labels
             "shopify_tax_breakdown": shopify_tax_breakdown,  # Shopify's actual tax breakdown
             "tax_lines": tax_lines,  # Raw tax line data

@@ -411,7 +411,7 @@ HTML_TEMPLATE = """
                 
                 <h4>Components (applied in order):</h4>
                 <p style="color: #666; font-size: 0.9em; margin-bottom: 10px;">
-                    <strong>Note:</strong> Revenue is automatically calculated as the remainder after all other components are applied.
+                    <strong>Note:</strong> Revenue is automatically calculated as the remainder after all other components are applied. Taxes are automatically calculated from Shopify tax data after all deductions.
                 </p>
                 <div id="componentsList"></div>
                 <button type="button" onclick="addComponent()" style="margin-top: 10px;">+ Add Component</button>
@@ -544,7 +544,7 @@ HTML_TEMPLATE = """
         }
         
         let componentCounter = 0;
-        const componentTypes = ['revenue', 'investor', 'state_taxes', 'federal_taxes', 'consigner'];
+        const componentTypes = ['revenue', 'investor', 'consigner', 'vendor'];
         
         function addComponent(type = '', calcType = 'percentage', value = 0, order = null, label = '') {
             const list = document.getElementById('componentsList');
@@ -558,9 +558,8 @@ HTML_TEMPLATE = """
                 <span class="component-order">${compOrder}</span>
                 <select name="comp_type_${compId}" required>
                     <option value="investor" ${type === 'investor' ? 'selected' : ''}>Investor</option>
-                    <option value="state_taxes" ${type === 'state_taxes' ? 'selected' : ''}>State Taxes</option>
-                    <option value="federal_taxes" ${type === 'federal_taxes' ? 'selected' : ''}>Federal Taxes</option>
                     <option value="consigner" ${type === 'consigner' ? 'selected' : ''}>Consigner</option>
+                    <option value="vendor" ${type === 'vendor' ? 'selected' : ''}>Vendor</option>
                 </select>
                 <input type="text" name="label_${compId}" value="${label || ''}" placeholder="Label (optional)" style="flex: 1;" title="Optional label to distinguish multiple components of the same type (e.g., 'Bank A', 'Vendor 1')">
                 <select name="calc_type_${compId}" required>
@@ -615,10 +614,9 @@ HTML_TEMPLATE = """
         
         // Add default components on page load
         // Note: Revenue is automatically calculated as remainder, not a component
+        // Note: Taxes are calculated from Shopify data after all deductions, not as components
         document.addEventListener('DOMContentLoaded', () => {
             addComponent('investor', 'percentage', 0);
-            addComponent('state_taxes', 'percentage', 0);
-            addComponent('federal_taxes', 'percentage', 0);
             addComponent('consigner', 'percentage', 0);
         });
         
@@ -689,8 +687,6 @@ HTML_TEMPLATE = """
             } else {
                 // Add default empty components if none exist
                 addComponent('investor', 'percentage', 0);
-                addComponent('state_taxes', 'percentage', 0);
-                addComponent('federal_taxes', 'percentage', 0);
                 addComponent('consigner', 'percentage', 0);
             }
             
@@ -716,8 +712,6 @@ HTML_TEMPLATE = """
             
             // Add default components
             addComponent('investor', 'percentage', 0);
-            addComponent('state_taxes', 'percentage', 0);
-            addComponent('federal_taxes', 'percentage', 0);
             addComponent('consigner', 'percentage', 0);
         }
         
@@ -878,7 +872,7 @@ HTML_TEMPLATE = """
                     const isMatched = b.matched_rules && b.matched_rules !== "No match";
                     let financialBreakdownHtml = '';
                     if (isMatched) {
-                        financialBreakdownHtml = `<br>Revenue: $${b.revenue.toFixed(2)} | Investor: $${b.investor.toFixed(2)} | State Taxes: $${b.state_taxes.toFixed(2)} | Federal Taxes: $${b.federal_taxes.toFixed(2)} | Consigner: $${b.consigner.toFixed(2)}${breakdownHtml}`;
+                        financialBreakdownHtml = `<br>Revenue: $${b.revenue.toFixed(2)} | Investor: $${b.investor.toFixed(2)} | State Taxes: $${b.state_taxes.toFixed(2)} | Federal Taxes: $${b.federal_taxes.toFixed(2)} | Consigner: $${b.consigner.toFixed(2)} | Vendor: $${(b.vendor || 0).toFixed(2)}${breakdownHtml}`;
                     }
                     
                     html += `<div class="order-item">

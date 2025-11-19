@@ -32,22 +32,23 @@ except ImportError:
     Alignment = None  # type: ignore
 
 
-def parse_component_labels(component_breakdown: List[str]) -> Tuple[Dict[str, float], Dict[str, float]]:
+def parse_component_labels(component_breakdown: List[str]) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
     """
-    Parse component breakdown to extract consigner and investor labels with amounts.
+    Parse component breakdown to extract consigner, investor, and vendor labels with amounts.
     
     Args:
         component_breakdown: List of component breakdown strings like "Consigner - Label: $amount"
     
     Returns:
-        Tuple of (consigners_dict, investors_dict) where keys are labels and values are amounts
+        Tuple of (consigners_dict, investors_dict, vendors_dict) where keys are labels and values are amounts
     """
     consigners = {}
     investors = {}
+    vendors = {}
     
     for item in component_breakdown:
         # Parse format: "Type - Label: $amount" or "Type: $amount"
-        match = re.match(r'^(Consigner|Investor)(?:\s*-\s*([^:]+))?:\s*\$\s*([\d.]+)', item)
+        match = re.match(r'^(Consigner|Investor|Vendor)(?:\s*-\s*([^:]+))?:\s*\$\s*([\d.]+)', item)
         if match:
             comp_type = match.group(1)
             label = match.group(2).strip() if match.group(2) else ""
@@ -59,8 +60,11 @@ def parse_component_labels(component_breakdown: List[str]) -> Tuple[Dict[str, fl
             elif comp_type == "Investor":
                 key = label if label else "Default"
                 investors[key] = investors.get(key, 0) + amount
+            elif comp_type == "Vendor":
+                key = label if label else "Default"
+                vendors[key] = vendors.get(key, 0) + amount
     
-    return consigners, investors
+    return consigners, investors, vendors
 
 
 def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"):
@@ -74,17 +78,19 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
     if not breakdowns:
         return
     
-    # Collect all unique consigner and investor labels
+    # Collect all unique consigner, investor, and vendor labels
     all_consigner_labels = set()
     all_investor_labels = set()
+    all_vendor_labels = set()
     all_tax_types = set()  # Collect all unique tax types from Shopify
     breakdowns_with_labels = []
     
     for breakdown in breakdowns:
         component_breakdown = breakdown.get("component_breakdown", [])
-        consigners, investors = parse_component_labels(component_breakdown)
+        consigners, investors, vendors = parse_component_labels(component_breakdown)
         all_consigner_labels.update(consigners.keys())
         all_investor_labels.update(investors.keys())
+        all_vendor_labels.update(vendors.keys())
         
         # Collect tax types from Shopify tax lines
         tax_lines = breakdown.get("tax_lines", []) or []
@@ -96,7 +102,8 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
         breakdowns_with_labels.append({
             'breakdown': breakdown,
             'consigners': consigners,
-            'investors': investors
+            'investors': investors,
+            'vendors': vendors
         })
     
     # Build column headers
@@ -125,11 +132,15 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
     consigner_columns = [f"Consigner - {label}" if label != "Default" else "Consigner" 
                         for label in sorted(all_consigner_labels)]
     
+    # Add columns for each unique vendor (sorted)
+    vendor_columns = [f"Vendor - {label}" if label != "Default" else "Vendor" 
+                     for label in sorted(all_vendor_labels)]
+    
     # Add columns for each unique Shopify tax type (sorted)
     shopify_tax_columns = [f"Shopify Tax - {tax_type}" for tax_type in sorted(all_tax_types)]
     
     # Combine all columns
-    fieldnames = base_columns + investor_columns + consigner_columns + shopify_tax_columns + [
+    fieldnames = base_columns + investor_columns + consigner_columns + vendor_columns + shopify_tax_columns + [
         "Shopify Tax Breakdown",
         "Component Breakdown",
         "Matched Rules"
@@ -143,13 +154,14 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
         # Track totals for numeric columns (exclude new text columns)
         totals = {col: 0.0 for col in fieldnames if col in [
             "Order Total", "Total Cost", "Revenue", "State Taxes", "Federal Taxes"
-        ] + investor_columns + consigner_columns + shopify_tax_columns}
+        ] + investor_columns + consigner_columns + vendor_columns + shopify_tax_columns}
         
         # Write data rows
         for item in breakdowns_with_labels:
             breakdown = item['breakdown']
             consigners = item['consigners']
             investors = item['investors']
+            vendors = item['vendors']
             
             component_breakdown = breakdown.get("component_breakdown", [])
             breakdown_str = "; ".join(component_breakdown) if component_breakdown else ""
@@ -168,6 +180,7 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
                 "Order Total": breakdown.get("order_total", 0),
                 "Total Cost": breakdown.get("total_cost", 0),
                 "Revenue": breakdown.get("revenue", 0),
+                # State and Federal Taxes are calculated using Shopify tax rates applied to remaining amount after deductions
                 "State Taxes": breakdown.get("state_taxes", 0),
                 "Federal Taxes": breakdown.get("federal_taxes", 0),
                 "Component Breakdown": breakdown_str,
@@ -185,6 +198,13 @@ def export_to_csv(breakdowns: List[Dict], output_path: str = "orders_export.csv"
             for label in sorted(all_consigner_labels):
                 col_name = f"Consigner - {label}" if label != "Default" else "Consigner"
                 amount = consigners.get(label, 0)
+                row[col_name] = amount
+                totals[col_name] = totals.get(col_name, 0) + amount
+            
+            # Add vendor columns
+            for label in sorted(all_vendor_labels):
+                col_name = f"Vendor - {label}" if label != "Default" else "Vendor"
+                amount = vendors.get(label, 0)
                 row[col_name] = amount
                 totals[col_name] = totals.get(col_name, 0) + amount
             
@@ -453,17 +473,19 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             spreadsheet = gc.create(f'Shopify Orders Export - {datetime.now().strftime("%Y-%m-%d")}')
             spreadsheet_id = spreadsheet.id
         
-        # Collect all unique consigner and investor labels (same logic as CSV export)
+        # Collect all unique consigner, investor, and vendor labels (same logic as CSV export)
         all_consigner_labels = set()
         all_investor_labels = set()
+        all_vendor_labels = set()
         all_tax_types = set()  # Collect all unique tax types from Shopify
         breakdowns_with_labels = []
         
         for breakdown in breakdowns:
             component_breakdown = breakdown.get("component_breakdown", [])
-            consigners, investors = parse_component_labels(component_breakdown)
+            consigners, investors, vendors = parse_component_labels(component_breakdown)
             all_consigner_labels.update(consigners.keys())
             all_investor_labels.update(investors.keys())
+            all_vendor_labels.update(vendors.keys())
             
             # Collect tax types from Shopify tax lines
             tax_lines = breakdown.get("tax_lines", []) or []
@@ -475,7 +497,8 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             breakdowns_with_labels.append({
                 'breakdown': breakdown,
                 'consigners': consigners,
-                'investors': investors
+                'investors': investors,
+                'vendors': vendors
             })
         
         # Build column headers (same as CSV)
@@ -500,9 +523,11 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                            for label in sorted(all_investor_labels)]
         consigner_columns = [f"Consigner - {label}" if label != "Default" else "Consigner" 
                             for label in sorted(all_consigner_labels)]
+        vendor_columns = [f"Vendor - {label}" if label != "Default" else "Vendor" 
+                         for label in sorted(all_vendor_labels)]
         shopify_tax_columns = [f"Shopify Tax - {tax_type}" for tax_type in sorted(all_tax_types)]
         
-        fieldnames = base_columns + investor_columns + consigner_columns + shopify_tax_columns + [
+        fieldnames = base_columns + investor_columns + consigner_columns + vendor_columns + shopify_tax_columns + [
             "Shopify Tax Breakdown",
             "Component Breakdown",
             "Matched Rules"
@@ -528,7 +553,7 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             
             totals = {col: 0.0 for col in fieldnames if col in [
                 "Order Total", "Total Cost", "Revenue", "State Taxes", "Federal Taxes"
-            ] + investor_columns + consigner_columns + shopify_tax_columns}
+            ] + investor_columns + consigner_columns + vendor_columns + shopify_tax_columns}
             
             # Filter breakdowns for this month (match by order_id)
             month_order_ids = {b.get('order_id') for b in month_breakdowns}
@@ -541,6 +566,7 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                 breakdown = item['breakdown']
                 consigners = item['consigners']
                 investors = item['investors']
+                vendors = item['vendors']
                 
                 component_breakdown = breakdown.get("component_breakdown", [])
                 breakdown_str = "; ".join(component_breakdown) if component_breakdown else ""
@@ -574,6 +600,12 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     amount = consigners.get(label, 0)
                     row.append(amount)
                     totals[f"Consigner - {label}" if label != "Default" else "Consigner"] += amount
+                
+                # Add vendor columns
+                for label in sorted(all_vendor_labels):
+                    amount = vendors.get(label, 0)
+                    row.append(amount)
+                    totals[f"Vendor - {label}" if label != "Default" else "Vendor"] += amount
                 
                 # Add Shopify tax columns
                 tax_lines = breakdown.get("tax_lines", []) or []
