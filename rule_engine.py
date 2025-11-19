@@ -380,8 +380,10 @@ class RuleEngine:
         breakdowns = []
         for order in orders:
             # Skip refunded orders
-            financial_status = order.get("financial_status", "").lower()
-            if financial_status in ["refunded", "partially_refunded"]:
+            # displayFinancialStatus returns: "PAID", "PENDING", "AUTHORIZED", "PARTIALLY_PAID", 
+            # "PARTIALLY_REFUNDED", "REFUNDED", "VOIDED"
+            financial_status = order.get("financial_status", "").upper()
+            if financial_status in ["REFUNDED", "PARTIALLY_REFUNDED"]:
                 continue  # Skip this order - it's a refund
             
             breakdown = self.calculate_order_breakdown(order, base_amount)
