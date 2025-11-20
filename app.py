@@ -468,6 +468,56 @@ HTML_TEMPLATE = """
         body.dark-mode .deduction-notes ul {
             color: #d0d0d0;
         }
+        .gsheets-connected {
+            padding: 10px;
+            background: #d4edda;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            color: #155724;
+        }
+        body.dark-mode .gsheets-connected {
+            background: #1e4620;
+            color: #90ee90;
+        }
+        .gsheets-not-connected {
+            padding: 10px;
+            background: #fff3cd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            color: #856404;
+        }
+        body.dark-mode .gsheets-not-connected {
+            background: #4a3e1e;
+            color: #ffd700;
+        }
+        .gsheets-section-title {
+            margin-top: 30px;
+            border-top: 2px solid #eee;
+            padding-top: 20px;
+        }
+        body.dark-mode .gsheets-section-title {
+            border-top-color: #555;
+        }
+        .gsheets-help-text {
+            color: #666;
+            display: block;
+            margin-top: 5px;
+        }
+        body.dark-mode .gsheets-help-text {
+            color: #aaa;
+        }
+        .order-metadata {
+            color: #666;
+        }
+        body.dark-mode .order-metadata {
+            color: #bbb;
+        }
+        .shopify-tax-text {
+            color: #0066cc;
+        }
+        body.dark-mode .shopify-tax-text {
+            color: #4da6ff;
+        }
     </style>
 </head>
 <body>
@@ -603,15 +653,15 @@ HTML_TEMPLATE = """
                 <small style="color: #666; display: block; margin-top: 5px;">Files will be saved to your browser's default download location if not specified.</small>
             </div>
             
-            <h3 style="margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px;">Google Sheets Export</h3>
+            <h3 class="gsheets-section-title">Google Sheets Export</h3>
             <div class="form-group">
                 {% if config.google_sheets.get('enabled') and config.google_sheets.get('user_email') %}
-                <div style="padding: 10px; background: #d4edda; border-radius: 4px; margin-bottom: 10px;">
+                <div class="gsheets-connected">
                     <strong>✓ Connected as:</strong> {{ config.google_sheets.user_email }}
                     <button onclick="disconnectGoogle()" style="margin-left: 10px; padding: 5px 10px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Disconnect</button>
                 </div>
                 {% else %}
-                <div style="padding: 10px; background: #fff3cd; border-radius: 4px; margin-bottom: 10px;">
+                <div class="gsheets-not-connected">
                     <strong>Not connected.</strong> Click the button below to sign in with Google.
                 </div>
                 <a href="/auth/google" style="display: inline-block; padding: 10px 20px; background: #4285f4; color: white; text-decoration: none; border-radius: 4px; margin-bottom: 15px;">
@@ -622,7 +672,7 @@ HTML_TEMPLATE = """
             <div class="form-group">
                 <label>Spreadsheet ID (optional):</label>
                 <input type="text" name="gsheets_spreadsheet_id" id="gsheets_spreadsheet_id" value="{{ config.google_sheets.get('spreadsheet_id', '') }}" placeholder="Paste spreadsheet URL or ID">
-                <small style="color: #666; display: block; margin-top: 5px;">You can paste the full Google Sheets URL (e.g., https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit) and the ID will be extracted automatically. If provided, exports will be added to this spreadsheet. If empty, a new spreadsheet will be created for each export.</small>
+                <small class="gsheets-help-text">You can paste the full Google Sheets URL (e.g., https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit) and the ID will be extracted automatically. If provided, exports will be added to this spreadsheet. If empty, a new spreadsheet will be created for each export.</small>
             </div>
             
             <button type="submit">Save Configuration</button>
@@ -1115,7 +1165,7 @@ HTML_TEMPLATE = """
                     }
                     let metadataHtml = '';
                     if (b.vendor || b.product_type || b.tags || b.collections) {
-                        metadataHtml = '<br><small style="color: #666;">';
+                        metadataHtml = '<br><small class="order-metadata">';
                         if (b.vendor) metadataHtml += `Vendor: ${b.vendor} | `;
                         if (b.product_type) metadataHtml += `Type: ${b.product_type} | `;
                         if (b.tags) metadataHtml += `Tags: ${b.tags} | `;
@@ -1128,7 +1178,7 @@ HTML_TEMPLATE = """
                         const taxBreakdown = Array.isArray(b.shopify_tax_breakdown) 
                             ? b.shopify_tax_breakdown.join(' | ') 
                             : b.shopify_tax_breakdown;
-                        shopifyTaxHtml = `<br><small style="color: #0066cc;"><strong>Shopify Taxes:</strong> ${taxBreakdown}</small>`;
+                        shopifyTaxHtml = `<br><small class="shopify-tax-text"><strong>Shopify Taxes:</strong> ${taxBreakdown}</small>`;
                     }
                     
                     // Only show financial breakdown for matched orders
