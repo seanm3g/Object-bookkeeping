@@ -207,8 +207,43 @@ The administrator needs to set up OAuth credentials (see above).
 ### "Token expired and refresh failed"
 Sign in with Google again. This usually happens if the refresh token is invalid.
 
-### "Spreadsheet not found"
-Check that the Spreadsheet ID is correct and that you have access to the spreadsheet.
+### "Spreadsheet not found" or "Permission denied" or "Failed to open spreadsheet"
+
+This error means the Google account you signed in with doesn't have access to the spreadsheet. Here's how to fix it:
+
+#### Option 1: Share the Spreadsheet with Your Google Account (Recommended)
+
+1. **Open the spreadsheet** in Google Sheets
+2. **Click the "Share" button** (top right corner)
+3. **Enter the email address** of the Google account you used to sign in to the app
+   - You can find this email in the app - it shows "✓ Connected as: [your-email]" in the Configuration section
+4. **Set permissions to "Editor"** (or at least "Viewer" if you only want to read)
+5. **Click "Send"**
+6. **Try exporting again**
+
+#### Option 2: Use a Different Spreadsheet
+
+1. **Create a new spreadsheet** in Google Sheets (or use one you already own)
+2. **Copy the spreadsheet ID** from the URL:
+   - URL format: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
+   - The `SPREADSHEET_ID` is the long string between `/d/` and `/edit`
+3. **Paste it into the "Spreadsheet ID" field** in the app's Configuration section
+4. **Click "Save Configuration"**
+5. **Try exporting again**
+
+#### Option 3: Re-authenticate with the Correct Account
+
+If you want to use a different Google account:
+
+1. **Click "Disconnect"** in the Configuration section
+2. **Click "Sign in with Google"** again
+3. **Choose the Google account** that has access to the spreadsheet
+4. **Grant permissions**
+5. **Try exporting again**
+
+#### Option 4: Leave Spreadsheet ID Empty
+
+If you leave the "Spreadsheet ID" field empty, the app will create a new spreadsheet for each export. This is useful if you don't have a specific spreadsheet to use.
 
 ### Export button is disabled
 Make sure you've:

@@ -501,10 +501,29 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     'success': False,
                     'error': f'Spreadsheet not found. Please check the spreadsheet ID or create a new one.'
                 }
+            except gspread.exceptions.APIError as api_error:
+                error_code = api_error.response.status_code if hasattr(api_error, 'response') else 'unknown'
+                error_msg = str(api_error) if str(api_error) else 'API error occurred'
+                if error_code == 403:
+                    return {
+                        'success': False,
+                        'error': f'Permission denied (403). The Google account "{creds.client_id if hasattr(creds, "client_id") else "you signed in with"}" does not have access to this spreadsheet. Please share the spreadsheet with that account or use a different spreadsheet.'
+                    }
+                elif error_code == 404:
+                    return {
+                        'success': False,
+                        'error': f'Spreadsheet not found (404). Please check the spreadsheet ID is correct.'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': f'Google Sheets API error ({error_code}): {error_msg}. Please check your permissions and try again.'
+                    }
             except Exception as open_error:
+                error_msg = str(open_error) if str(open_error) else type(open_error).__name__
                 return {
                     'success': False,
-                    'error': f'Failed to open spreadsheet: {str(open_error)}. Please check the spreadsheet ID and your permissions.'
+                    'error': f'Failed to open spreadsheet: {error_msg}. Please check the spreadsheet ID and ensure the Google account you signed in with has access to the spreadsheet.'
                 }
         else:
             # Create new spreadsheet
