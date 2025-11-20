@@ -1882,7 +1882,19 @@ def export_google_sheets_api():
         return jsonify(result)
         
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 400
+        # Log detailed error information
+        import traceback
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else f'{error_type} exception occurred'
+        traceback_str = traceback.format_exc()
+        print(f"API export error: {error_type}: {error_msg}")
+        print(f"Traceback: {traceback_str}")
+        
+        # Return error with type if message is empty
+        if not error_msg or error_msg == error_type:
+            error_msg = f'{error_type} - Unknown error occurred'
+        
+        return jsonify({'success': False, 'error': error_msg}), 400
 
 
 def open_browser():

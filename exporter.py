@@ -476,8 +476,21 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     'error': 'Token expired and refresh failed. OAuth client credentials not available. Please disconnect and sign in again.'
                 }
         
+        # Validate credentials before using
+        if not creds or not creds.token:
+            return {
+                'success': False,
+                'error': 'Invalid OAuth credentials. Please sign in with Google again.'
+            }
+        
         # Authenticate with gspread
-        gc = gspread.authorize(creds)
+        try:
+            gc = gspread.authorize(creds)
+        except Exception as auth_error:
+            return {
+                'success': False,
+                'error': f'Failed to authenticate with Google Sheets: {str(auth_error)}. Please sign in again.'
+            }
         
         # Get or create spreadsheet
         if spreadsheet_id:
@@ -488,10 +501,21 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                     'success': False,
                     'error': f'Spreadsheet not found. Please check the spreadsheet ID or create a new one.'
                 }
+            except Exception as open_error:
+                return {
+                    'success': False,
+                    'error': f'Failed to open spreadsheet: {str(open_error)}. Please check the spreadsheet ID and your permissions.'
+                }
         else:
             # Create new spreadsheet
-            spreadsheet = gc.create(f'Shopify Orders Export - {datetime.now().strftime("%Y-%m-%d")}')
-            spreadsheet_id = spreadsheet.id
+            try:
+                spreadsheet = gc.create(f'Shopify Orders Export - {datetime.now().strftime("%Y-%m-%d")}')
+                spreadsheet_id = spreadsheet.id
+            except Exception as create_error:
+                return {
+                    'success': False,
+                    'error': f'Failed to create spreadsheet: {str(create_error)}. Please check your Google Sheets permissions.'
+                }
         
         # Collect all unique consigner, investor, and vendor labels (same logic as CSV export)
         all_consigner_labels = set()
@@ -705,20 +729,31 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             'error': f'Invalid OAuth token format: {str(e)}. Please sign in again.'
         }
     except Exception as e:
+        # Get detailed error information
+        import traceback
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else f'{error_type} exception occurred'
+        
+        # Log full traceback for debugging (in production, this would go to logs)
+        traceback_str = traceback.format_exc()
+        print(f"Google Sheets export error: {error_type}: {error_msg}")
+        print(f"Traceback: {traceback_str}")
+        
         # Don't double-wrap error messages
-        error_msg = str(e)
         if error_msg.startswith('Export failed:'):
             # Already wrapped, use as-is
-            return {
-                'success': False,
-                'error': error_msg
-            }
+            final_error = error_msg
         else:
-            # Wrap with context
-            return {
-                'success': False,
-                'error': f'Export failed: {error_msg}'
-            }
+            # Wrap with context, include error type if message is generic
+            if not error_msg or error_msg == error_type:
+                final_error = f'Export failed: {error_type} - {error_msg or "Unknown error occurred"}'
+            else:
+                final_error = f'Export failed: {error_msg}'
+        
+        return {
+            'success': False,
+            'error': final_error
+        }
 
 
 def organize_by_month(breakdowns: List[Dict]) -> Dict[str, List[Dict]]:
