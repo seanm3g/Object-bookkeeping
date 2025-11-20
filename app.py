@@ -1580,6 +1580,7 @@ def google_auth():
     
     # OAuth scopes
     SCOPES = [
+        'openid',
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/userinfo.email'
     ]
@@ -1640,6 +1641,7 @@ def google_auth_callback():
     try:
         # Create OAuth flow
         SCOPES = [
+            'openid',
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/userinfo.email'
         ]

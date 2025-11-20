@@ -35,6 +35,7 @@ Before users can export to Google Sheets, you need to set up OAuth credentials i
      - Developer contact: Your email
    - Click "Save and Continue"
    - Add scopes:
+     - `openid`
      - `https://www.googleapis.com/auth/spreadsheets`
      - `https://www.googleapis.com/auth/userinfo.email`
    - Click "Save and Continue"
