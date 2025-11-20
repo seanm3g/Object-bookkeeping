@@ -109,15 +109,21 @@ class RuleEngine:
         # Get line items first (needed for both price calculation and product descriptions)
         line_items = order.get("line_items", [])
         
-        # Calculate original sale price from line items (before discounts)
+        # Calculate original sale price from line items (before refunds and discounts)
         original_sale_price = 0.0
         for item in line_items:
             price = float(item.get("price", "0"))
             quantity = int(item.get("quantity", 1))
             original_sale_price += price * quantity
         
+        # Subtract refunds from original sale price (for partially refunded orders)
+        # Refunds are applied FIRST, as they represent money returned to the customer
+        total_refunded = float(order.get("total_refunded", "0") or "0")
+        sale_price_after_refunds = max(0, original_sale_price - total_refunded)
+        
         # Calculate total discount amount
         # This handles both percentage and fixed amount discounts
+        # Discounts are calculated on the sale price AFTER refunds
         total_discount_amount = 0.0
         discount_applications = order.get("discount_applications", []) or []
         
@@ -126,9 +132,9 @@ class RuleEngine:
             for discount_app in discount_applications:
                 value_data = discount_app.get("value", {})
                 if value_data.get("type") == "percentage":
-                    # Percentage discount - apply to original sale price
+                    # Percentage discount - apply to sale price after refunds
                     percentage = float(value_data.get("percentage", 0))
-                    discount_amount = original_sale_price * (percentage / 100)
+                    discount_amount = sale_price_after_refunds * (percentage / 100)
                     total_discount_amount += discount_amount
                 elif value_data.get("type") == "money":
                     # Fixed amount discount - use amount directly
@@ -138,9 +144,9 @@ class RuleEngine:
             # Fallback: use total_discount if discount_applications not available
             total_discount_amount = float(order.get("total_discount", "0") or "0")
         
-        # Apply discounts BEFORE allocation and taxes
-        # Subtract discounts from original sale price to get the discounted amount
-        base = max(0, original_sale_price - total_discount_amount)
+        # Apply discounts AFTER refunds but BEFORE allocation and taxes
+        # Subtract discounts from sale price (after refunds) to get the discounted amount
+        base = max(0, sale_price_after_refunds - total_discount_amount)
         
         # Subtract total cost from base amount before applying rules
         total_cost = float(order.get("total_cost", 0))
@@ -379,13 +385,14 @@ class RuleEngine:
         """
         breakdowns = []
         for order in orders:
-            # Skip refunded orders
+            # Skip fully refunded orders only
             # displayFinancialStatus returns: "PAID", "PENDING", "AUTHORIZED", "PARTIALLY_PAID", 
             # "PARTIALLY_REFUNDED", "REFUNDED", "VOIDED"
             financial_status = order.get("financial_status", "").upper()
-            if financial_status in ["REFUNDED", "PARTIALLY_REFUNDED"]:
-                continue  # Skip this order - it's a refund
+            if financial_status == "REFUNDED":
+                continue  # Skip fully refunded orders
             
+            # Partially refunded orders will be processed with refund amount deducted
             breakdown = self.calculate_order_breakdown(order, base_amount)
             breakdowns.append(breakdown)
         return breakdowns

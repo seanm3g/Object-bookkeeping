@@ -213,12 +213,16 @@ def transform_order(node: Dict) -> Dict:
     # "PARTIALLY_REFUNDED", "REFUNDED", "VOIDED"
     financial_status = node.get("displayFinancialStatus", "")
     
+    # Extract total refunded amount
+    total_refunded = node.get("totalRefundedSet", {}).get("shopMoney", {}).get("amount", "0")
+    
     return {
         "id": node.get("id", ""),
         "order_number": order_number,
         "created_at": node.get("createdAt", ""),
         "email": node.get("email", ""),
         "financial_status": financial_status,  # For refund detection
+        "total_refunded": total_refunded,  # Total refunded amount
         "customer": {
             "first_name": customer.get("firstName", ""),
             "last_name": customer.get("lastName", "")
@@ -449,6 +453,12 @@ def fetch_orders(shop_domain: str, access_token: str, start_date: str, end_date:
               }
             }
             totalDiscountsSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            totalRefundedSet {
               shopMoney {
                 amount
                 currencyCode

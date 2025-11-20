@@ -647,8 +647,18 @@ HTML_TEMPLATE = """
             
             <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
             
+            <div class="deduction-step" style="border-left-color: #dc3545;">
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #dc3545;">2</div>
+                <div style="flex: 1;">
+                    <strong>Subtract Refunds (if any)</strong>
+                    <div style="color: #666; font-size: 0.9em; margin-top: 5px;">Partial refunds only (fully refunded orders are excluded)</div>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
+            
             <div class="deduction-step" style="border-left-color: #28a745;">
-                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #28a745;">2</div>
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #28a745;">3</div>
                 <div style="flex: 1;">
                     <strong>Subtract Discounts</strong>
                     <div style="color: #666; font-size: 0.9em; margin-top: 5px;">Percentage discounts and/or fixed amount discounts</div>
@@ -658,7 +668,7 @@ HTML_TEMPLATE = """
             <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
             
             <div class="deduction-step" style="border-left-color: #ffc107;">
-                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #ffc107;">3</div>
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #ffc107;">4</div>
                 <div style="flex: 1;">
                     <strong>Subtract Total Cost</strong>
                     <div style="color: #666; font-size: 0.9em; margin-top: 5px;">Inventory costs from line items</div>
@@ -668,7 +678,7 @@ HTML_TEMPLATE = """
             <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
             
             <div class="deduction-step" style="border-left-color: #6f42c1;">
-                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #6f42c1;">4</div>
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #6f42c1;">5</div>
                 <div style="flex: 1;">
                     <strong>Apply Allocation Components</strong>
                     <div style="color: #666; font-size: 0.9em; margin-top: 5px;">Applied sequentially in rule order: Investor → Consigner → Vendor (each calculated from remaining amount)</div>
@@ -677,8 +687,8 @@ HTML_TEMPLATE = """
             
             <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
             
-            <div class="deduction-step" style="border-left-color: #dc3545;">
-                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #dc3545;">5</div>
+            <div class="deduction-step" style="border-left-color: #e83e8c;">
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #e83e8c;">6</div>
                 <div style="flex: 1;">
                     <strong>Calculate Taxes</strong>
                     <div style="color: #666; font-size: 0.9em; margin-top: 5px;">
@@ -695,7 +705,7 @@ HTML_TEMPLATE = """
             <div style="text-align: center; margin: 10px 0; color: #666;">↓</div>
             
             <div class="deduction-step" style="border-left-color: #17a2b8;">
-                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #17a2b8;">6</div>
+                <div style="flex: 0 0 30px; text-align: center; font-weight: bold; color: #17a2b8;">7</div>
                 <div style="flex: 1;">
                     <strong>Revenue</strong>
                     <div style="color: #666; font-size: 0.9em; margin-top: 5px;">Final remaining amount after all deductions</div>
@@ -706,12 +716,14 @@ HTML_TEMPLATE = """
         <div class="deduction-notes">
             <strong>Important Notes:</strong>
             <ul style="margin: 10px 0 0 20px; color: #666;">
-                <li>Discounts are applied <strong>first</strong>, before any other deductions</li>
+                <li>Refunds are applied <strong>first</strong>, before discounts and all other deductions</li>
+                <li>Fully refunded orders are <strong>excluded</strong> from calculations entirely</li>
+                <li>Partially refunded orders are processed with the refund amount subtracted from the sale price</li>
+                <li>Discounts are calculated on the sale price <strong>after refunds</strong></li>
                 <li>Allocation components are applied <strong>sequentially</strong> in the order specified by your rules</li>
                 <li>Each component is calculated from the <strong>remaining amount</strong> after previous deductions</li>
                 <li>Taxes are calculated from Shopify's tax data and applied to the remaining amount</li>
                 <li>Revenue is automatically calculated as the <strong>residual</strong> after all deductions</li>
-                <li>Refunded orders are <strong>excluded</strong> from calculations entirely</li>
             </ul>
         </div>
     </div>
