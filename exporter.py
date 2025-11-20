@@ -419,20 +419,31 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         # Parse OAuth token
         token_data = json.loads(oauth_token_json)
         
+        # Ensure client_id and client_secret are in token_data (needed for token refresh)
+        # If provided as parameters, use them (they override stored values)
+        # Otherwise, use what's stored in token_data
+        if client_id and client_secret:
+            token_data['client_id'] = client_id
+            token_data['client_secret'] = client_secret
+        elif not token_data.get('client_id') or not token_data.get('client_secret'):
+            # If not in token_data and not provided as parameters, we need them for refresh
+            if not client_id or not client_secret:
+                return {
+                    'success': False,
+                    'error': 'OAuth client credentials not available. Please disconnect and sign in again, or contact administrator.'
+                }
+        
         # Create credentials from token
         creds = Credentials.from_authorized_user_info(token_data)
-        
-        # Set client_id and client_secret if provided (needed for token refresh)
-        if client_id and client_secret:
-            creds.client_id = client_id
-            creds.client_secret = client_secret
         
         # Track if token was updated (for saving back to DB)
         token_updated = False
         
         # Refresh token if needed
         if creds.expired and creds.refresh_token:
-            if client_id and client_secret:
+            # Check if we have client credentials (either from parameters or token_data)
+            has_client_creds = (client_id and client_secret) or (token_data.get('client_id') and token_data.get('client_secret'))
+            if has_client_creds:
                 try:
                     creds.refresh(Request())
                     # Google may add 'openid' scope automatically - this is normal and harmless
@@ -462,7 +473,7 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             else:
                 return {
                     'success': False,
-                    'error': 'Token expired and refresh failed. OAuth credentials not configured. Please contact administrator.'
+                    'error': 'Token expired and refresh failed. OAuth client credentials not available. Please disconnect and sign in again.'
                 }
         
         # Authenticate with gspread
