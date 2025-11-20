@@ -422,6 +422,11 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         # Create credentials from token
         creds = Credentials.from_authorized_user_info(token_data)
         
+        # Set client_id and client_secret if provided (needed for token refresh)
+        if client_id and client_secret:
+            creds.client_id = client_id
+            creds.client_secret = client_secret
+        
         # Track if token was updated (for saving back to DB)
         token_updated = False
         
@@ -449,11 +454,15 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                             'success': False,
                             'error': 'OAuth scopes have changed. Please disconnect and sign in with Google again.'
                         }
-                    raise
+                    # Return more detailed error for debugging
+                    return {
+                        'success': False,
+                        'error': f'Token refresh failed: {str(refresh_error)}. Please disconnect and sign in again.'
+                    }
             else:
                 return {
                     'success': False,
-                    'error': 'Token expired and refresh failed. Please sign in again.'
+                    'error': 'Token expired and refresh failed. OAuth credentials not configured. Please contact administrator.'
                 }
         
         # Authenticate with gspread
@@ -679,16 +688,26 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
         
         return result
         
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         return {
             'success': False,
-            'error': 'Invalid OAuth token format. Please sign in again.'
+            'error': f'Invalid OAuth token format: {str(e)}. Please sign in again.'
         }
     except Exception as e:
-        return {
-            'success': False,
-            'error': f'Export failed: {str(e)}'
-        }
+        # Don't double-wrap error messages
+        error_msg = str(e)
+        if error_msg.startswith('Export failed:'):
+            # Already wrapped, use as-is
+            return {
+                'success': False,
+                'error': error_msg
+            }
+        else:
+            # Wrap with context
+            return {
+                'success': False,
+                'error': f'Export failed: {error_msg}'
+            }
 
 
 def organize_by_month(breakdowns: List[Dict]) -> Dict[str, List[Dict]]:

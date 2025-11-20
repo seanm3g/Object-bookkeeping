@@ -179,10 +179,11 @@ Once OAuth is configured by the administrator, end users can export to Google Sh
 If you want all exports to go to the same spreadsheet:
 
 1. Create a Google Sheet (or use an existing one)
-2. Copy the Spreadsheet ID from the URL:
+2. Copy the spreadsheet URL from your browser's address bar
    - URL format: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
-   - The `SPREADSHEET_ID` is the long string between `/d/` and `/edit`
-3. Paste it into the "Spreadsheet ID" field in Configuration
+3. Paste the full URL into the "Spreadsheet ID" field in Configuration
+   - The spreadsheet ID will be automatically extracted from the URL
+   - Alternatively, you can paste just the ID directly
 4. Click "Save Configuration"
 
 ## How It Works

@@ -621,8 +621,8 @@ HTML_TEMPLATE = """
             </div>
             <div class="form-group">
                 <label>Spreadsheet ID (optional):</label>
-                <input type="text" name="gsheets_spreadsheet_id" id="gsheets_spreadsheet_id" value="{{ config.google_sheets.get('spreadsheet_id', '') }}" placeholder="Leave empty to create a new spreadsheet each time">
-                <small style="color: #666; display: block; margin-top: 5px;">If provided, exports will be added to this spreadsheet. If empty, a new spreadsheet will be created for each export.</small>
+                <input type="text" name="gsheets_spreadsheet_id" id="gsheets_spreadsheet_id" value="{{ config.google_sheets.get('spreadsheet_id', '') }}" placeholder="Paste spreadsheet URL or ID">
+                <small style="color: #666; display: block; margin-top: 5px;">You can paste the full Google Sheets URL (e.g., https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit) and the ID will be extracted automatically. If provided, exports will be added to this spreadsheet. If empty, a new spreadsheet will be created for each export.</small>
             </div>
             
             <button type="submit">Save Configuration</button>
@@ -753,6 +753,25 @@ HTML_TEMPLATE = """
         
         // Initialize dark mode on page load
         initDarkMode();
+        
+        // Extract spreadsheet ID from URL when pasted
+        const spreadsheetIdInput = document.getElementById('gsheets_spreadsheet_id');
+        if (spreadsheetIdInput) {
+            spreadsheetIdInput.addEventListener('paste', function(e) {
+                // Use setTimeout to get the pasted value after paste event
+                setTimeout(() => {
+                    const value = this.value.trim();
+                    // Check if it looks like a URL
+                    if (value.includes('docs.google.com/spreadsheets/d/')) {
+                        // Extract ID from URL pattern: /d/SPREADSHEET_ID/ or /d/SPREADSHEET_ID
+                        const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                        if (match && match[1]) {
+                            this.value = match[1];
+                        }
+                    }
+                }, 0);
+            });
+        }
         
         let ordersData = [];  // Unmatched orders for display
         let allOrdersData = [];  // All orders for export
@@ -1275,7 +1294,13 @@ HTML_TEMPLATE = """
                         alert(message);
                     }
                 } else {
-                    alert('Export failed: ' + (result.error || 'Unknown error'));
+                    // Don't double-wrap error messages
+                    const errorMsg = result.error || 'Unknown error';
+                    if (errorMsg.startsWith('Export failed:')) {
+                        alert(errorMsg);
+                    } else {
+                        alert('Export failed: ' + errorMsg);
+                    }
                 }
             } catch (error) {
                 alert('Export failed: ' + error.message);
