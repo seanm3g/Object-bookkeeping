@@ -207,6 +207,77 @@ The administrator needs to set up OAuth credentials (see above).
 ### "Token expired and refresh failed"
 Sign in with Google again. This usually happens if the refresh token is invalid.
 
+### "Insufficient authentication scopes" or "Request had insufficient authentication scopes"
+
+This error means your OAuth token doesn't have all the required permissions. This can happen for several reasons:
+
+#### Common Causes:
+
+1. **You authenticated before the app was updated** with the `openid` scope
+2. **Your token was created with older scopes**
+3. **The OAuth consent screen wasn't properly configured** in Google Cloud Console
+4. **Your account isn't authorized** (if the app is in testing mode)
+5. **Account-level restrictions** (work/school accounts may have restrictions)
+
+#### Solution Steps:
+
+**Step 1: Check OAuth Consent Screen Configuration (Administrator)**
+
+If you're the administrator, verify the OAuth consent screen is configured correctly:
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Navigate to **APIs & Services** → **OAuth consent screen**
+3. Check the **Scopes** section - make sure all three scopes are listed:
+   - `openid`
+   - `https://www.googleapis.com/auth/spreadsheets`
+   - `https://www.googleapis.com/auth/userinfo.email`
+4. If any are missing, click **"ADD OR REMOVE SCOPES"** and add them
+5. Save the changes
+
+**Step 2: Check if App is in Testing Mode**
+
+1. In the OAuth consent screen, check the **Publishing status**
+2. If it says **"Testing"**:
+   - Your email must be added as a **Test User**
+   - Go to **Test users** section
+   - Click **"+ ADD USERS"**
+   - Add your Google account email address
+   - Save changes
+3. **OR** publish the app (if appropriate for your use case):
+   - Click **"PUBLISH APP"**
+   - Confirm the publishing
+
+**Step 3: Re-authenticate Your Account**
+
+1. **Disconnect your Google account**:
+   - Go to the Configuration section in the app
+   - Click the **"Disconnect"** button next to your connected email
+   
+2. **Sign in again with Google**:
+   - Click **"Sign in with Google"**
+   - You'll be prompted to authorize the app
+   - **Important**: Make sure you see all three permissions being requested:
+     - See your email address
+     - See, edit, create, and delete all your Google Sheets spreadsheets
+   - Grant all permissions
+   
+3. **Try exporting again**
+
+**Step 4: Check Account Type Restrictions**
+
+If you're using a **Google Workspace (work/school) account**, your organization may have restrictions:
+- Contact your IT administrator to allow the app
+- Or use a personal Google account instead
+
+**Step 5: Verify Token Has Correct Scopes**
+
+After re-authenticating, the app should work. If it still doesn't:
+- Check the error message - it should now be more specific
+- Make sure you granted all permissions during the OAuth flow
+- Try disconnecting and reconnecting one more time
+
+**Note:** After re-authenticating with the correct OAuth consent screen configuration, you'll have a fresh token with all the correct scopes, and the export should work.
+
 ### "Spreadsheet not found" or "Permission denied" or "Failed to open spreadsheet"
 
 This error means the Google account you signed in with doesn't have access to the spreadsheet. Here's how to fix it:

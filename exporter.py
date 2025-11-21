@@ -483,13 +483,39 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                 'error': 'Invalid OAuth credentials. Please sign in with Google again.'
             }
         
+        # Check what scopes are actually in the credentials (after potential refresh)
+        actual_scopes = set(creds.scopes) if creds.scopes else set()
+        required_scopes = {
+            'openid',
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/userinfo.email'
+        }
+        
+        # Check if credentials have all required scopes
+        missing_scopes = required_scopes - actual_scopes
+        if missing_scopes:
+            # Log for debugging
+            print(f"Token scopes: {actual_scopes}")
+            print(f"Required scopes: {required_scopes}")
+            print(f"Missing scopes: {missing_scopes}")
+            return {
+                'success': False,
+                'error': f'Your OAuth token is missing required scopes: {", ".join(sorted(missing_scopes))}. Current scopes: {", ".join(sorted(actual_scopes)) if actual_scopes else "none"}. Please disconnect and sign in with Google again to get a new token with all required permissions.'
+            }
+        
         # Authenticate with gspread
         try:
             gc = gspread.authorize(creds)
         except Exception as auth_error:
+            error_msg = str(auth_error)
+            if 'insufficient authentication scopes' in error_msg.lower() or 'scope' in error_msg.lower():
+                return {
+                    'success': False,
+                    'error': f'Authentication failed due to insufficient scopes: {error_msg}. Your token has scopes: {", ".join(sorted(actual_scopes)) if actual_scopes else "none"}. Please disconnect and sign in with Google again.'
+                }
             return {
                 'success': False,
-                'error': f'Failed to authenticate with Google Sheets: {str(auth_error)}. Please sign in again.'
+                'error': f'Failed to authenticate with Google Sheets: {error_msg}. Please sign in again.'
             }
         
         # Get or create spreadsheet
@@ -505,9 +531,14 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
                 error_code = api_error.response.status_code if hasattr(api_error, 'response') else 'unknown'
                 error_msg = str(api_error) if str(api_error) else 'API error occurred'
                 if error_code == 403:
+                    if 'insufficient authentication scopes' in error_msg.lower() or 'scope' in error_msg.lower():
+                        return {
+                            'success': False,
+                            'error': 'Insufficient authentication scopes. Your OAuth token is missing required permissions. Please disconnect and sign in with Google again to get a new token with the correct scopes.'
+                        }
                     return {
                         'success': False,
-                        'error': f'Permission denied (403). The Google account "{creds.client_id if hasattr(creds, "client_id") else "you signed in with"}" does not have access to this spreadsheet. Please share the spreadsheet with that account or use a different spreadsheet.'
+                        'error': f'Permission denied (403). The Google account you signed in with does not have access to this spreadsheet. Please share the spreadsheet with that account or use a different spreadsheet.'
                     }
                 elif error_code == 404:
                     return {
@@ -530,10 +561,35 @@ def export_to_google_sheets(breakdowns: List[Dict], oauth_token_json: str,
             try:
                 spreadsheet = gc.create(f'Shopify Orders Export - {datetime.now().strftime("%Y-%m-%d")}')
                 spreadsheet_id = spreadsheet.id
+            except gspread.exceptions.APIError as api_error:
+                error_code = api_error.response.status_code if hasattr(api_error, 'response') else 'unknown'
+                error_msg = str(api_error) if str(api_error) else 'API error occurred'
+                if error_code == 403:
+                    if 'insufficient authentication scopes' in error_msg.lower() or 'scope' in error_msg.lower():
+                        return {
+                            'success': False,
+                            'error': 'Insufficient authentication scopes. Your OAuth token is missing required permissions. Please disconnect and sign in with Google again to get a new token with the correct scopes.'
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': f'Permission denied (403). Please check your Google Sheets permissions or try disconnecting and signing in again.'
+                        }
+                else:
+                    return {
+                        'success': False,
+                        'error': f'Google Sheets API error ({error_code}): {error_msg}. Please check your permissions and try again.'
+                    }
             except Exception as create_error:
+                error_msg = str(create_error) if str(create_error) else type(create_error).__name__
+                if 'insufficient authentication scopes' in error_msg.lower() or 'scope' in error_msg.lower():
+                    return {
+                        'success': False,
+                        'error': 'Insufficient authentication scopes. Your OAuth token is missing required permissions. Please disconnect and sign in with Google again to get a new token with the correct scopes.'
+                    }
                 return {
                     'success': False,
-                    'error': f'Failed to create spreadsheet: {str(create_error)}. Please check your Google Sheets permissions.'
+                    'error': f'Failed to create spreadsheet: {error_msg}. Please check your Google Sheets permissions.'
                 }
         
         # Collect all unique consigner, investor, and vendor labels (same logic as CSV export)
